@@ -57,6 +57,7 @@ RoboMaster 超级对抗赛（RMUC）官方于7月18日在论坛发布了 [RMUC 2
 - [参考](#参考)
 - [团队与引用](#团队与引用)
 - [License](#license)
+- [Star History](#star-history)
 
 ## 前言
 
@@ -460,3 +461,13 @@ cmd = apply_safety(cmd, heat=h, heat_limit=hl, ammo_left=a, ego_xy=(x, y))
 ## License
 
 MIT，见 [LICENSE](LICENSE)。许可证仅覆盖源代码；比赛数据版权归 DJI RoboMaster，二次分发前请确认授权范围。
+
+## Star History
+
+<a href="https://star-history.com/#Harkerbest/RMUC-OfflineRL&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Harkerbest/RMUC-OfflineRL&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Harkerbest/RMUC-OfflineRL&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Harkerbest/RMUC-OfflineRL&type=Date" width="640" />
+  </picture>
+</a>
