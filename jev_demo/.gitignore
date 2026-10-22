@@ -1,0 +1,8 @@
+# 绝不入库：TypeSafe API key
+.env
+*.key
+
+# 运行产物
+sample.json
+state_dump.txt
+runs/

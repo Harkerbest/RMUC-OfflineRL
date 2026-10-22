@@ -1,0 +1,100 @@
+{
+  "n_transitions": 99570,
+  "n_valid": 87577,
+  "n_named": 44837,
+  "games": 61,
+  "label_target_dist": {
+    "hero": 7289,
+    "engineer": 6785,
+    "infantry_3": 8354,
+    "infantry_4": 8504,
+    "aerial": 6248,
+    "sentry": 7657,
+    "none": 42740
+  },
+  "fire_pos_rate": 0.16122955083847046,
+  "iql": {
+    "target_top1_named": 0.7455449740169949,
+    "target_top1_all": 0.8319764321682633,
+    "fire_f1": 0.4127663215538633,
+    "fire_acc": 0.8432693515420715,
+    "nav_mse": 0.05998164787888527
+  },
+  "oracle_closed_form": {
+    "target_top1_named": 1.0
+  },
+  "baselines": {
+    "target_random_over_6": 0.16666666666666666,
+    "target_majority_named": 0.18966478577960166,
+    "target_nearest_live_enemy": 0.26007538416932446,
+    "fire_always_off_acc": 0.8387704534295535,
+    "nav_predict_zero_err_m": 2.086500406265259
+  },
+  "jev_turret_True": {
+    "n": 1200,
+    "errors": 0,
+    "target_top1_named": 0.21166666666666667,
+    "target_mean_conf": 0.616425,
+    "fire_f1@0.5": 0.0,
+    "fire_acc@0.5": 0.7791666666666667,
+    "fire_auc": 0.7694521239027343,
+    "fire_mean_p": 0.2344083333333333,
+    "fire_sweep": {
+      "best_f1": 0.5254437869822485,
+      "best_threshold": 0.23,
+      "f1_at_base_rate_threshold": 0.3524229074889868,
+      "base_rate_threshold": 0.29
+    },
+    "nav_err_m_mean": 1.9406927861223855,
+    "nav_err_m_median": 0.9433665582878352,
+    "nav_stay_rate": 0.6858333333333333,
+    "mean_input_tokens": 8695.525833333333
+  },
+  "jev_turret_False": {
+    "n": 1200,
+    "errors": 0,
+    "target_top1_named": 0.19666666666666666,
+    "target_mean_conf": 0.6311249999999999,
+    "fire_f1@0.5": 0.0,
+    "fire_acc@0.5": 0.7791666666666667,
+    "fire_auc": 0.7670911108868933,
+    "fire_mean_p": 0.23963333333333328,
+    "fire_sweep": {
+      "best_f1": 0.5224489795918368,
+      "best_threshold": 0.26,
+      "f1_at_base_rate_threshold": 0.4,
+      "base_rate_threshold": 0.29
+    },
+    "nav_err_m_mean": 1.9820598025357625,
+    "nav_err_m_median": 0.9572403121949971,
+    "nav_stay_rate": 0.6591666666666667,
+    "mean_input_tokens": 8670.088333333333
+  },
+  "matched_subsample": {
+    "n": 1200,
+    "fire_pos_rate": 0.22083333134651184,
+    "human_nav_goal_norm_m": 1.541936993598938,
+    "iql": {
+      "target_top1_named": 0.73,
+      "fire_f1@0.5": 0.38095238095238093,
+      "fire_acc@0.5": 0.7833333333333333,
+      "fire_auc": 0.6108364443547574,
+      "fire_sweep": {
+        "best_f1": 0.38095238095238093,
+        "best_threshold": 0.0,
+        "f1_at_base_rate_threshold": 0.38095238095238093,
+        "base_rate_threshold": 0.0
+      },
+      "nav_err_m_mean": 1.9069104194641113
+    },
+    "oracle_closed_form": {
+      "target_top1_named": 1.0
+    },
+    "nearest_live_enemy": {
+      "target_top1_named": 0.26416666666666666
+    },
+    "random_over_6": 0.16666666666666666
+  },
+  "jev_wall_seconds": 158.21159819999593,
+  "jev_n_calls": 2400
+}

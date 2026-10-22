@@ -63,3 +63,9 @@ Thumbs.db
 .idea/
 .vscode/
 *.log
+
+# ---- secrets ----------------------------------------------------------------
+# jev_demo/ keeps its TypeSafe API key in .env; its own .gitignore covers it,
+# this is the repo-wide backstop.
+.env
+*.key
