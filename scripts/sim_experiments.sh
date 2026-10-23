@@ -13,9 +13,11 @@
 # Stages (each skipped when its output exists, so a re-run resumes):
 #   0. [SIM] export scripted matches -> vis_map -> team_prior -> dataset -> BC/IQL/DT
 #   1. parity check: live 161-D observation == offline build_obs
-#   2. closed-loop evaluation of script / random / BC / IQL / DT
+#   2. closed-loop evaluation of script / random / BC / IQL / DT, each with the
+#      deploy threshold (p_fire > 0.5) and with a gate sampled from p_fire
 #   3. MAPPO fine-tuning from BC (shared actor, centralised critic, KL to BC)
 #   4. closed-loop evaluation of the fine-tuned actor on the same grid
+# Report: docs/arena/REPORT.md
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -66,7 +68,9 @@ CL=$RUNS/closed_loop
 log "closed-loop evaluation -> $CL"
 python -m rm_rl.eval.closed_loop --out "$CL" --vis-map "$VIS" --workers "$WORKERS" \
   --opponents "$OPPONENTS" --seeds "$SEEDS" \
-  --arm script --arm random --arm "bc=$BC" --arm "iql=$IQL" --arm "dt=$DT" --arm "bc_vision=$BC:vision"
+  --arm script --arm random --arm "bc=$BC" --arm "iql=$IQL" --arm "dt=$DT" \
+  --arm "bc_sample=$BC:sample" --arm "iql_sample=$IQL:sample" --arm "dt_sample=$DT:sample" \
+  --arm "bc_sample_vision=$BC:vision:sample"
 
 MAPPO=$RUNS/mappo_from_bc
 log "MAPPO fine-tuning from BC -> $MAPPO"
@@ -75,7 +79,8 @@ python -m rm_rl.train.train_mappo --init "$BC" --vis-map "$VIS" --out "$MAPPO" \
 
 log "closed-loop evaluation of the fine-tuned actor"
 python -m rm_rl.eval.closed_loop --out "$CL" --vis-map "$VIS" --workers "$WORKERS" \
-  --opponents "$OPPONENTS" --seeds "$SEEDS" --arm "mappo=$MAPPO/latest"
+  --opponents "$OPPONENTS" --seeds "$SEEDS" --arm "mappo=$MAPPO/latest" --arm "mappo_sample=$MAPPO/latest:sample"
 
-log "done: $CL/summary.md"
+python -m viz.sim_figures --closed-loop "$CL/results.jsonl" --mappo "$MAPPO" --out "$CL"
+log "done: $CL/summary.md, $CL/closed_loop.png, $CL/mappo.png"
 cat "$CL/summary.md"

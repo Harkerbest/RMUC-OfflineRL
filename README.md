@@ -55,6 +55,7 @@ RoboMaster 超级对抗赛（RMUC）官方于7月18日在论坛发布了 [RMUC 2
 - [部署](#部署)
 - [计划](#计划)
 - [Jev 评估](#jev-评估)
+- [仿真闭环（Arena-1）](#仿真闭环arena-1)
 - [参考](#参考)
 - [团队与引用](#团队与引用)
 - [License](#license)
@@ -94,7 +95,9 @@ RoboMaster 超级对抗赛（RMUC）官方于7月18日在论坛发布了 [RMUC 2
 | 策略能学到人类步兵的战术模式：6 台敌方中选对交战目标 **74.6%**（随机 16.7%） | **可靠**（held-out 监督指标） |
 | 用人类操作的**步兵**数据训练，比用全自主**哨兵**数据学到更多决策：扣除基线后 **+0.341 vs +0.215** | **可靠**（同上） |
 | IQL / Decision Transformer 相对行为克隆**没有可测量的增益**（偏置对消后 ±0.6 内） | **可靠**（BC 校准对消估计器偏置） |
-| 策略是否强于各队现役哨兵脚本 | **无法判定**（见[评估的局限](#评估的局限)） |
+| 闭环中 IQL 相对 BC 同样**没有可测量的提升**（Arena-1 仿真，同局配对伤害差 −377，95% CI −895 ~ +38） | **中等**（仿真；每组 12 局） |
+| 按 `p_fire > 0.5` 部署，三个策略都**显著不如**仿真里的脚本步兵；门控改为按 `p_fire` 采样后差距不再显著 | **中等**（同上） |
+| 策略是否强于各队现役哨兵脚本 | **无法判定**（离线不可判；Arena-1 仿真中也未超过其脚本步兵，见[仿真闭环](#仿真闭环arena-1)） |
 | 策略是否强于人类步兵 | **几乎否定**（离线模仿的理论上限，且实测 IQL≈BC） |
 
 
@@ -285,7 +288,7 @@ RoboMaster 超级对抗赛（RMUC）官方于7月18日在论坛发布了 [RMUC 2
 
 我们另外实现了不依赖 Q 函数的 [`win_alignment.py`](rm_rl/eval/win_alignment.py)（比较策略提议与获胜方 / 失败方日志的一致度），但它带有同样方向的偏置，且**主效应来自混淆**：加入"状态无关的常数策略"作为对照后，某通道 lift +0.0265 中有 +0.0260 来自对照，策略自身贡献 +0.0006。该工具默认打印 `ctrl_lift` 与 `excess` 两列，**只有 `excess` 可归因于策略**。
 
-结论：**在 420 步时域上用一个策略的日志评估另一个行为差异较大的策略，现有离线手段无法做到**（严格的重要性采样在该长度下方差发散）。判定必须依靠闭环。
+结论：**在 420 步时域上用一个策略的日志评估另一个行为差异较大的策略，现有离线手段无法做到**（严格的重要性采样在该长度下方差发散）。判定必须依靠闭环，见[仿真闭环（Arena-1）](#仿真闭环arena-1)。
 
 ## 可视化
 
@@ -371,7 +374,7 @@ Windows 单卡：`powershell -ExecutionPolicy Bypass -File scripts\win_train.ps1
 ```
 rm_rl/
 ├── configs/                     # infantry_{iql,bc,dt}_tactical.yaml（主）+ 旧版哨兵配置
-├── scripts/                     # run_all.sh · collect_results.sh · export_policy.py · win_*.ps1
+├── scripts/                     # run_all.sh · sim_experiments.sh · collect_results.sh · export_policy.py · win_*.ps1
 ├── rm_rl/
 │   ├── data/
 │   │   ├── schema.py            # 列名 / robot_id / 场地常量 / 朝向哨兵值 / 兵种分组
@@ -383,9 +386,10 @@ rm_rl/
 │   │   ├── build_dataset.py     # SQLite → 轨迹 → 转移 → 分片
 │   │   ├── check_dataset.py     # 训练前自检
 │   │   └── dataset.py           # 转移集 / 序列集 + 归一化
-│   ├── algos/                   # action_spec · networks(含 HybridPolicy) · iql · bc · dt
-│   ├── eval/                    # ope_fqe · ope_dt · win_alignment
-│   ├── train/                   # common(DDP) · train_offline · train_dt
+│   ├── algos/                   # action_spec · networks(含 HybridPolicy) · iql · bc · dt · mappo
+│   ├── eval/                    # ope_fqe · ope_dt · win_alignment · closed_loop（仿真闭环评估）
+│   ├── train/                   # common(DDP) · train_offline · train_dt · train_mappo
+│   ├── sim/                     # Arena-1 桥接：裁判日志 · SQLite 导出 · 在线 161 维观测 · 控制器 · 对局
 │   └── deploy.py                # 载入 + 反归一化 + 安全约束
 ├── viz/
 │   ├── export_replay.py         # 一场比赛 + 模型逐秒决策 → JSON
@@ -394,9 +398,10 @@ rm_rl/
 │   ├── heatmaps.py              # 哨兵 vs 步兵占位 / 离散度 / 跨队相似度 / 交战图
 │   ├── policy_field.py          # 全场策略向量场（静态图 / 动画 / --report）
 │   ├── field_canvas.py          # 场地底图标定（裁判原点 ≠ 图片角点）
+│   ├── sim_figures.py           # 仿真闭环评估图 / MAPPO 训练曲线
 │   └── assets/                  # 场地底图放置处（DJI 素材，不随仓库分发）
 ├── jev_demo/                    # Jev 对照评估：实验脚本 + REPORT.md
-└── docs/                        # logo
+└── docs/                        # logo · arena/（仿真闭环报告与逐局结果）
 ```
 
 ## 部署
@@ -414,6 +419,12 @@ cmd = apply_safety(cmd, heat=h, heat_limit=hl, ammo_left=a, ego_xy=(x, y))
 
 `load_policy` 优先加载 `best.pt`。`apply_safety` 施加硬约束：限制单步位移、热量无余量时撤销交战许可、弹药耗尽停火、越界时抵消向外分量。蓝方部署自动反镜像。
 
+[仿真闭环](#仿真闭环arena-1)中暴露的三处部署注意事项：
+
+- **交战门控**：`fire` 由 `p_fire > 0.5` 得出，而 `p_fire` 是"这一秒有发弹"的发射率（正类约 16%），阈值化后 BC 只在 9%、IQL 不到 1% 的秒给出许可。应按正类率定阈值或按概率采样。
+- **常量列**：训练中恒定的观测列标准差被截到 1e-3，车上若取到不同的值（默认值、单位）会被放大上千倍、让策略输出恒定。建议对归一化后的观测截断（如 ±5σ）或在训练时剔除常量列。
+- **补弹**：`ego.ammo` 是累计发弹而非剩余弹量，策略不知道自己打空了；补弹须由车载规则负责。
+
 
 
 ## 计划
@@ -426,8 +437,9 @@ cmd = apply_safety(cmd, heat=h, heat_limit=hl, ammo_left=a, ego_xy=(x, y))
 
 **2. 闭环仿真**
 
-- 最小 2D 简化 RMUC，或对接现有 RM 模拟器接口。
-- 在线 RL / 自博弈，突破离线模仿上限，并获得可信胜率。
+- ~~对接现有 RM 模拟器接口~~：已对接 Arena-1，闭环评估与 MAPPO 微调见[仿真闭环](#仿真闭环arena-1)。
+- 在线 RL 尚未带来提升（30 轮 MAPPO 持平 BC）：先给仿真提速、按对手分组做课程，再做自博弈 / 联赛。
+- 修正动作空间的两处语义：门控标签（发射率 → 许可）、补给（剩余弹量不可观测）。
 
 **3. 数据与算法**
 
@@ -460,6 +472,35 @@ cmd = apply_safety(cmd, heat=h, heat_limit=hl, ammo_left=a, ego_xy=(x, y))
    - 交战门控标签描述刚结束的那一秒（回溯），导航标签描述未来 5 秒，同一动作向量里两个头的时间锚点相反。
 
    修好这两处标签，比接入任何外部模型都优先。
+
+
+
+## 仿真闭环（Arena-1）
+
+[`rm_rl/sim/`](rm_rl/sim/) 把开源仿真器 [Arena-1](https://github.com/RM-Arena/Arena-1)（RMUC 2026 / 2027，Rust 物理与裁判判定）接成闭环：在线观测走与离线**同一段** `build_obs`（逐行比对误差为 0），战术动作由导航 / 自瞄 / 补给规则执行，三个用官方数据训练的策略接管 3 / 4 / 7 号步兵，与 Arena-1 自带脚本对打。另实现了 MAPPO 在线微调，并能把仿真对局导出成官方同格式的 SQLite，让本流水线原样在仿真数据上训练。完整报告见 [docs/arena/REPORT.md](docs/arena/REPORT.md)。
+
+> 仿真不是真实赛场（规则由 AI 按手册实现，对手是脚本），以下结论只用于排序方法与发现部署问题。
+
+![闭环评估](viz/figures/closed_loop.png)
+
+| 对比（同一组 12 局配对） | 伤害差（造成 − 承受），95% CI |
+|---|---|
+| IQL − BC | −377（−895 ~ +38） |
+| BC − 脚本步兵（`p_fire > 0.5`） | **−853（−1825 ~ −140）** |
+| BC − 脚本步兵（按 `p_fire` 采样） | −506（−1443 ~ +256） |
+| DT·采样 − BC | **+780（+196 ~ +1639）** |
+| MAPPO 微调 30 轮 − BC（均采样） | −34（−526 ~ +527） |
+
+1. **闭环里 IQL 同样没有超过 BC**，与离线 FQE 的结论一致。
+2. **按部署代码的 0.5 阈值，三个策略都显著不如脚本步兵**；改为按 `p_fire` 采样开火后差距不再显著。门控是"这一秒有发弹"的发射率，不是许可（与 [Jev 评估](#jev-评估)"阈值须按正类率定"一致）。
+3. **闭环暴露了两处离线看不到的隐患**：常量观测列被 1e-3 标准差放大上千倍会让策略输出恒定；`ego.ammo` 是累计发弹，策略不知道自己打空（BC 控制的步兵曾有 56% 的存活时间无弹）。见[部署](#部署)。
+4. **视野受限无害**：只给己方相机看到的敌人位置，BC 没有变差。
+5. **MAPPO 微调 30 轮（120 局）没有可测量的提升**，策略几乎没动（`p_fire` 0.182 → 0.190）。单核约 1.5 倍实时，样本量还差一到两个数量级。
+
+```bash
+export ARENA1_ROOT=/path/to/Arena-1        # 编译好引擎的 Arena-1 checkout
+bash scripts/sim_experiments.sh             # 一致性校验 → 闭环评估 → MAPPO → 再评估（SIM=1 用仿真数据训练替身）
+```
 
 
 
