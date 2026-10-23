@@ -77,6 +77,16 @@ def load_game_arrays(con, game_id: int) -> GameArrays:
     df = pd.read_sql(
         f"SELECT {sel} FROM {S.T_TIMESERIES} WHERE game_id = ?",
         con, params=[int(game_id)])
+    return game_arrays_from_df(df)
+
+
+def game_arrays_from_df(df: pd.DataFrame) -> GameArrays:
+    """Timeseries rows (ASCII column aliases) -> GameArrays on the 1 s grid.
+
+    Shared by the SQLite loader and the simulator bridge (rm_rl.sim), so an
+    observation built online from a live match goes through exactly the same
+    alignment, clipping and forward-fill as one built from the official log.
+    """
     if df.empty:
         return GameArrays(0, {})
     df["t"] = df["t"].round().astype(int)

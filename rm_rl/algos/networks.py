@@ -88,10 +88,14 @@ class HybridPolicy(nn.Module):
         return (self.head_nav(h), self.head_fire(h).squeeze(-1),
                 self.head_target(h))
 
-    def log_prob(self, obs, act):
+    def log_prob(self, obs, act, clamp_nav=True):
+        """Joint log-likelihood.  `clamp_nav=False` scores the nav sample as drawn
+        (on-policy RL stores unclipped samples, so the PPO ratio stays exact)."""
         mean, fire_logit, tgt_logits = self.heads(obs)
         s = self.spec
-        nav = act[..., s.sl_cont].clamp(-1 + 1e-6, 1 - 1e-6)
+        nav = act[..., s.sl_cont]
+        if clamp_nav:
+            nav = nav.clamp(-1 + 1e-6, 1 - 1e-6)
         std = self.log_std.clamp(self.log_std_min, self.log_std_max).exp()
         lp = torch.distributions.Normal(mean, std.expand_as(mean)).log_prob(nav).sum(-1)
         gate = act[..., s.sl_fire].squeeze(-1)
@@ -115,6 +119,39 @@ class HybridPolicy(nn.Module):
                 mean, std.expand_as(mean)).sample().clamp(-1.0, 1.0)
             gate = torch.bernoulli(p_fire)
         return torch.cat([nav, gate, p_tgt], dim=-1)
+
+    # ---- on-policy RL (rm_rl.algos.mappo) -----------------------------------
+    def dists(self, obs):
+        """(Normal over nav, Bernoulli over the gate, Categorical over targets)."""
+        mean, fire_logit, tgt_logits = self.heads(obs)
+        std = self.log_std.clamp(self.log_std_min, self.log_std_max).exp()
+        return (torch.distributions.Normal(mean, std.expand_as(mean)),
+                torch.distributions.Bernoulli(logits=fire_logit),
+                torch.distributions.Categorical(logits=tgt_logits))
+
+    @torch.no_grad()
+    def sample(self, obs):
+        """Draw one tactical action per row with its exact log-probability.
+
+        Unlike `act`, the target is a sampled class (one-hot in the target slots,
+        so `log_prob` reduces to the categorical log-likelihood) and nav is left
+        unclipped; clip it to [-1, 1] only when executing.
+        """
+        nav_d, fire_d, tgt_d = self.dists(obs)
+        nav, gate, tgt = nav_d.sample(), fire_d.sample(), tgt_d.sample()
+        logp = nav_d.log_prob(nav).sum(-1) + fire_d.log_prob(gate) + tgt_d.log_prob(tgt)
+        onehot = F.one_hot(tgt, self.spec.n_target).to(nav.dtype)
+        return torch.cat([nav, gate.unsqueeze(-1), onehot], dim=-1), logp
+
+    def entropy(self, obs):
+        nav_d, fire_d, tgt_d = self.dists(obs)
+        return nav_d.entropy().sum(-1) + fire_d.entropy() + tgt_d.entropy()
+
+    def kl(self, obs, other: "HybridPolicy"):
+        """KL(self || other) per row, summed over the three independent heads."""
+        a, b = self.dists(obs), other.dists(obs)
+        kd = torch.distributions.kl_divergence
+        return kd(a[0], b[0]).sum(-1) + kd(a[1], b[1]) + kd(a[2], b[2])
 
 
 def build_policy(obs_dim, spec: ActionSpec, hidden=256, depth=2):
