@@ -21,6 +21,9 @@ class RunPolicy:
 
     gate="threshold": weapons free when p_fire > 0.5 — `deploy.decode_action`'s rule.
     gate="sample":    weapons free with probability p_fire, drawn each decision.
+    gate="auto":      weapons always free (a diagnostic): the controller fires
+                      whenever it is aligned on a visible enemy, so only the
+                      policy's movement and target choice differ between runs.
     The fire label is "rounds left the barrel this second" (~16% of live seconds),
     so p_fire is a calibrated rate rather than a permission; thresholding it at
     0.5 keeps only its rare peaks (BC 9%, IQL <1% of seconds in Arena), while
@@ -29,7 +32,7 @@ class RunPolicy:
     """
 
     def __init__(self, run_dir, device="cpu", target_pct=90.0, gate="threshold", seed=0):
-        if gate not in ("threshold", "sample"):
+        if gate not in ("threshold", "sample", "auto"):
             raise ValueError(gate)
         self.model, self.norm, self.info = load_policy(run_dir, device)
         self.algo, self.device, self.gate = self.info["algo"], device, gate
@@ -55,6 +58,8 @@ class RunPolicy:
             if self.gate == "sample":
                 _, logit, _ = self.model.policy.heads(o.unsqueeze(0))
                 a[2] = float(self.rng.random() < float(torch.sigmoid(logit)[0]))
+            elif self.gate == "auto":
+                a[2] = 1.0
             return a
         h = self.hist.setdefault(key, dict(obs=[], act=[], rtg=[], ts=[], ret=self.target_return))
         if h["obs"]:
@@ -77,6 +82,8 @@ class RunPolicy:
         a = self.model.act(obs, act, rtg, ts, mask)[0]       # a[2] is p_fire here
         if self.gate == "sample":
             a[2] = float(self.rng.random() < float(a[2]))
+        elif self.gate == "auto":
+            a[2] = 1.0
         # feed back the action as the dataset encodes it: hard gate, target distribution
         fed = a.clone()
         fed[2] = (fed[2] > 0.5).float()

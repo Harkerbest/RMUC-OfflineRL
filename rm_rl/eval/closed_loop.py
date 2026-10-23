@@ -13,7 +13,8 @@ Arms:
     NAME=RUN_DIR[:FLAG...] a trained tactical run (BC / IQL / DT / MAPPO export);
                            ':vision' gates enemy positions by Arena's camera model,
                            ':sample' draws the weapons-free gate from p_fire instead
-                           of thresholding it at 0.5 (see sim.policies.RunPolicy)
+                           of thresholding it at 0.5, ':auto' keeps weapons free
+                           (see sim.policies.RunPolicy)
 
     python -m rm_rl.eval.closed_loop \\
         --arm script --arm random \\
@@ -50,9 +51,9 @@ def parse_arm(spec: str, default_info: str):
                     gate="sample" if spec == "random" else "script")
     name, rest = spec.split("=", 1)
     arm = dict(name=name, kind="run", enemy_info=default_info, gate="threshold")
-    while rest.rsplit(":", 1)[-1] in ("vision", "full", "sample", "threshold"):
+    while rest.rsplit(":", 1)[-1] in ("vision", "full", "sample", "threshold", "auto"):
         rest, flag = rest.rsplit(":", 1)
-        arm["gate" if flag in ("sample", "threshold") else "enemy_info"] = flag
+        arm["gate" if flag in ("sample", "threshold", "auto") else "enemy_info"] = flag
     arm["run"] = rest
     return arm
 
