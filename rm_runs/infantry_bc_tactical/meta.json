@@ -1,0 +1,53 @@
+{
+  "agent_type": "步兵3,步兵4",
+  "agent_types": [
+    "步兵3",
+    "步兵4"
+  ],
+  "obs_dim": 161,
+  "action_dim": 10,
+  "expected_obs_dim": 161,
+  "expected_action_dim": 10,
+  "n_train_episodes": 2165,
+  "n_train_transitions": 903272,
+  "n_val_episodes": 239,
+  "n_val_transitions": 99570,
+  "act_scale": [
+    7.468000411987305,
+    7.906999588012695,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+  ],
+  "reward": {
+    "w_outpost_atk": 3.0,
+    "w_base_atk": 5.0,
+    "w_dmg_deal": 1.0,
+    "w_kill": 2.0,
+    "w_outpost_def": 4.0,
+    "w_base_def": 6.0,
+    "w_dmg_take": 1.0,
+    "w_death": 2.0,
+    "w_ego_surv": 0.02,
+    "w_ego_hp": 0.2,
+    "w_heat": 0.5,
+    "w_econ": 0.5,
+    "w_win": 20.0,
+    "w_final_base": 5.0
+  },
+  "field": {
+    "x": 28.0,
+    "y": 15.0
+  },
+  "vis_radius": 0.0,
+  "vis_dropout": 0.0,
+  "action_mode": "tactical",
+  "goal_horizon": 5,
+  "vis_map": true,
+  "team_prior": true
+}
