@@ -147,7 +147,8 @@ def run_episode(arena, cfg: EpisodeConfig, agent_fn, vis_map=None, sides=None,
         damage=tm[team].get("attack_damage", 0.0), damage_enemy=tm[enemy].get("attack_damage", 0.0),
         kills=tm[team].get("kills", 0), kills_enemy=tm[enemy].get("kills", 0),
         returns=returns, decisions=n_dec,
-        decide_ms=round(1000 * decide_s / max(n_dec, 1), 2), wall=round(time.time() - t_wall, 1))
+        decide_ms=round(1000 * decide_s / max(n_dec, 1), 2), wall=round(time.time() - t_wall, 1),
+        resupply_frac=round(ctrl.resupply_ticks / max(ctrl.live_ticks, 1), 4))
     out = dict(result=result, steps=steps)
     if keep_log:
         out["log"] = log

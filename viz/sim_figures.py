@@ -1,6 +1,6 @@
 """Figures for the Arena-1 closed-loop experiments.
 
-    python -m viz.sim_figures --closed-loop rm_runs/arena/closed_loop \\
+    python -m viz.sim_figures --closed-loop docs/arena/results_real.jsonl \\
         --mappo rm_runs/arena/mappo_from_bc --out viz/figures
 
 closed_loop.png  per arm: win rate (Wilson 95% CI) and mean damage difference
@@ -19,9 +19,12 @@ import numpy as np
 TH = dict(bg="#0d1117", fg="#e6edf3", dim="#7d8590", grid="#21262d")
 SERIES = "#3987e5"          # one series per panel: the categorical slot-1 dark step
 REF = "#7d8590"
-ORDER = ["script", "bc", "iql", "dt", "bc_vision", "mappo", "random"]
-LABEL = {"script": "脚本(参照)", "bc": "BC", "iql": "IQL", "dt": "DT", "bc_vision": "BC·视野受限",
-         "mappo": "MAPPO(BC 初始化)", "random": "随机"}
+ORDER = ["script", "random", "bc", "iql", "dt", "bc_sample", "iql_sample", "dt_sample",
+         "bc_auto", "iql_auto", "dt_auto", "bc_vision", "mappo", "mappo_sample"]
+LABEL = {"script": "脚本(参照)", "random": "随机", "bc": "BC", "iql": "IQL", "dt": "DT",
+         "bc_sample": "BC·采样开火", "iql_sample": "IQL·采样开火", "dt_sample": "DT·采样开火",
+         "bc_auto": "BC·始终开火", "iql_auto": "IQL·始终开火", "dt_auto": "DT·始终开火",
+         "bc_vision": "BC·视野受限", "mappo": "MAPPO", "mappo_sample": "MAPPO·采样开火"}
 
 
 def _style(plt, font):
@@ -41,11 +44,12 @@ def _axes(ax):
     ax.set_axisbelow(True)
 
 
-def closed_loop(path, out, plt):
+def closed_loop(path, out, plt, min_n=1):
     from rm_rl.eval.closed_loop import bootstrap_ci, wilson
-    rows = [json.loads(l) for l in open(os.path.join(path, "results.jsonl"), encoding="utf-8") if l.strip()]
-    arms = [a for a in ORDER if any(r["arm"] == a for r in rows)]
-    arms += sorted({r["arm"] for r in rows} - set(arms))
+    rows = [json.loads(l) for l in open(path, encoding="utf-8") if l.strip()]
+    count = {a: sum(r["arm"] == a for r in rows) for a in {r["arm"] for r in rows}}
+    arms = [a for a in ORDER if count.get(a, 0) >= min_n]
+    arms += sorted(a for a in count if a not in ORDER and count[a] >= min_n)
     stats = []
     for a in arms:
         rs = [r for r in rows if r["arm"] == a]
@@ -106,7 +110,8 @@ def mappo(path, out, plt):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--closed-loop", default=None)
+    ap.add_argument("--closed-loop", default=None, help="results.jsonl of rm_rl.eval.closed_loop")
+    ap.add_argument("--min-n", type=int, default=1, help="skip arms with fewer matches (unfinished)")
     ap.add_argument("--mappo", default=None)
     ap.add_argument("--out", default="viz/figures")
     ap.add_argument("--font", default="WenQuanYi Zen Hei")
@@ -117,7 +122,7 @@ def main():
     _style(plt, args.font)
     os.makedirs(args.out, exist_ok=True)
     if args.closed_loop:
-        closed_loop(args.closed_loop, os.path.join(args.out, "closed_loop.png"), plt)
+        closed_loop(args.closed_loop, os.path.join(args.out, "closed_loop.png"), plt, args.min_n)
     if args.mappo:
         mappo(args.mappo, os.path.join(args.out, "mappo.png"), plt)
 

@@ -23,6 +23,14 @@ fire as "no target", so the policy cannot ask for it explicitly.)
 Everything that is not motion or weapons — buying ammo at the supply zone,
 revives, chassis/weapon profiles — is taken from the team script's own command
 for that slot, so every arm in an evaluation shares the same mechanisms.
+
+Resupply.  The observation's `ego.ammo` is rounds fired so far: the official log
+never records the rounds *left*, so a policy trained on it cannot know it is
+empty.  Measured in Arena, a BC-driven infantry spent 56% of its live time with
+no ammunition.  Like auto-aim, resupply is therefore an onboard rule rather
+than a tactical decision: while a robot has no ammo the team script drives it
+(home to buy, exactly what the scripted infantry do), and the policy's latched
+command resumes as soon as it is rearmed.  `resupply_ticks` counts that time.
 """
 from __future__ import annotations
 
@@ -41,9 +49,11 @@ def _wrap(a):
 
 
 class TacticalController:
-    def __init__(self, sdk, aim_tol=0.12, arrive=0.3, fallback=True):
+    def __init__(self, sdk, aim_tol=0.12, arrive=0.3, fallback=True, resupply=True):
         self.sdk, self.aim_tol, self.arrive, self.fallback = sdk, aim_tol, arrive, fallback
+        self.resupply = resupply
         self.cmd = {}
+        self.live_ticks = self.resupply_ticks = 0
 
     def command(self, slot: str, decoded: dict, robot: dict):
         """Latch a decoded tactical command (deploy.decode_action output, world frame)."""
@@ -63,6 +73,10 @@ class TacticalController:
         cmd = self.cmd.get(slot)
         if cmd is None or not robot["alive"]:
             return {**out, "move": [0.0, 0.0], "fire": False}
+        self.live_ticks += 1
+        if self.resupply and robot["ammo"] <= 0 and scripted:
+            self.resupply_ticks += 1
+            return dict(scripted)
 
         gx, gy = cmd["goal"]
         if math.hypot(gx - robot["x"], gy - robot["y"]) > self.arrive:
