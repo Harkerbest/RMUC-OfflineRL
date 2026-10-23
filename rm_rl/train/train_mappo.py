@@ -31,6 +31,7 @@ from ..algos.mappo import MAPPO, gae
 from ..deploy import load_policy
 from . import common as C
 
+METRICS = ("v_loss", "pi_loss", "entropy", "kl_prior", "approx_kl", "clipfrac")
 # Training pool.  siege_team is held out: closed-loop evaluation against it
 # measures generalisation to an opponent never met during fine-tuning.
 TRAIN_OPPONENTS = ("claude_opus55_xhigh_hold,claude_opus55_xhigh_team,claude_opus55_xhigh_squad,"
@@ -244,6 +245,9 @@ def main():
             algo.eval()
 
             res = [r["result"] for r in rolls]
+            # every row carries every metric (CsvLogger fixes its header on the first row,
+            # which is a critic-warmup iteration without the actor's metrics)
+            mets = {k: agg[k] / max(nmb, 1) if k in agg else float("nan") for k in METRICS}
             row = dict(iteration=it, episodes=len(res), samples=int(N),
                        win_rate=float(np.mean([r["win"] for r in res])),
                        d_damage=float(np.mean([r["damage"] - r["damage_enemy"] for r in res])),
@@ -251,7 +255,7 @@ def main():
                        ret_per_agent=float(np.mean([np.mean(list(r["returns"].values())) for r in res])),
                        explained_var=ev, actor_trained=int(train_actor),
                        rollout_s=round(t_roll, 1), update_s=round(time.time() - t0 - t_roll, 1),
-                       **{k: v / max(nmb, 1) for k, v in agg.items()})
+                       **mets)
             log.log(row)
             print(f"[mappo] it {it}: " + " ".join(f"{k}={v:.4g}" if isinstance(v, float) else f"{k}={v}"
                                                  for k, v in row.items()), flush=True)
