@@ -28,6 +28,7 @@ import numpy as np
 import torch
 
 from ..algos.mappo import MAPPO, gae
+from ..data.reward import RewardConfig
 from ..deploy import load_policy
 from . import common as C
 
@@ -93,7 +94,8 @@ def rollout(job):
     cfg = EpisodeConfig(team=job["side"], own=f"examples/{job['own']}",
                         opponent=f"examples/{job['opponent']}", seed=job["seed"],
                         duration=job["duration"], enemy_info=job["enemy_info"],
-                        use_team_prior=bool(_W["meta"].get("team_prior")), record_global=True)
+                        use_team_prior=bool(_W["meta"].get("team_prior")), record_global=True,
+                        reward=RewardConfig.from_dict(_W["meta"].get("reward", {})))
     out = run_episode(_W["arena"], cfg, agent, vis_map=_W["vmap"])
     trajs = []
     for key, steps in out["steps"].items():

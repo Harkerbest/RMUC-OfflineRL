@@ -83,6 +83,7 @@ def _setup(arena_path, vis_map_path):
 def play(job):
     """One (arm, opponent, seed, side) match in a worker process."""
     from ..sim.episode import EpisodeConfig, run_episode
+    from ..data.reward import RewardConfig
     from ..sim.policies import RandomPolicy, RunPolicy
     arena, vmap = _setup(job["arena"], job["vis_map"])
     arm = job["arm"]
@@ -98,6 +99,8 @@ def play(job):
         if pol.meta.get("vis_map") and vmap is None:
             raise SystemExit(f"{arm['run']} was trained with a vis_map; pass --vis-map")
         cfg.use_team_prior = bool(pol.meta.get("team_prior"))
+        # the run's own reward weights: DT conditions on returns measured in them
+        cfg.reward = RewardConfig.from_dict(pol.meta.get("reward", {}))
         agent = PolicyAgent(pol)
     try:
         out = run_episode(arena, cfg, agent, vis_map=vmap)
