@@ -101,16 +101,17 @@ def mappo(path, out, plt):
         ax.grid(axis="y", color=TH["grid"], lw=0.8)
         v = get(key)
         ax.plot(it, v, color=SERIES, lw=1, alpha=0.45)
-        k = 5
-        if len(v) >= k:
-            sm = np.convolve(np.nan_to_num(v), np.ones(k) / k, mode="valid")
-            ax.plot(it[k - 1:], sm, color=SERIES, lw=2, label=f"{k} 轮滑动平均")
+        k = 5                                   # rolling mean over valid iterations only
+        sm = np.array([np.nanmean(v[i - k + 1:i + 1]) if np.isfinite(v[max(0, i - k + 1):i + 1]).sum() == k
+                       else np.nan for i in range(len(v))])
+        ax.plot(it, sm, color=SERIES, lw=2, label=f"{k} 轮滑动平均")
         warm = it[get("actor_trained") < 0.5]
         if len(warm):
             ax.axvspan(it[0] - 0.5, warm.max() + 0.5, color=TH["grid"], alpha=0.6, lw=0)
         ax.set_title(title, fontsize=10, color=TH["fg"], loc="left")
-    axes[0].text(it[0], axes[0].get_ylim()[1], " critic 预热（actor 冻结）", va="top", fontsize=8,
-                 color=TH["dim"])
+    lo, hi = axes[-1].get_ylim()
+    axes[-1].text(it[0] - 0.4, (lo + hi) / 2, "critic 预热\n(actor 冻结)", va="center", ha="left",
+                  fontsize=8, color=TH["dim"])
     axes[-1].set_xlabel("迭代")
     fig.savefig(out, dpi=150, facecolor=TH["bg"], bbox_inches="tight")
     print("wrote", out)
