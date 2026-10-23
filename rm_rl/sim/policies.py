@@ -17,11 +17,23 @@ from ..deploy import load_policy
 
 
 class RunPolicy:
-    """A trained run directory (best.pt + norm_stats.npz + meta.json)."""
+    """A trained run directory (best.pt + norm_stats.npz + meta.json).
 
-    def __init__(self, run_dir, device="cpu", deterministic=True, target_pct=90.0):
+    gate="threshold": weapons free when p_fire > 0.5 — `deploy.decode_action`'s rule.
+    gate="sample":    weapons free with probability p_fire, drawn each decision.
+    The fire label is "rounds left the barrel this second" (~16% of live seconds),
+    so p_fire is a calibrated rate rather than a permission; thresholding it at
+    0.5 keeps only its rare peaks (BC 9%, IQL <1% of seconds in Arena), while
+    sampling reproduces the demonstrated firing rate.  Nav and target stay
+    deterministic either way.
+    """
+
+    def __init__(self, run_dir, device="cpu", target_pct=90.0, gate="threshold", seed=0):
+        if gate not in ("threshold", "sample"):
+            raise ValueError(gate)
         self.model, self.norm, self.info = load_policy(run_dir, device)
-        self.algo, self.device, self.deterministic = self.info["algo"], device, deterministic
+        self.algo, self.device, self.gate = self.info["algo"], device, gate
+        self.rng = np.random.default_rng(seed)
         if self.info.get("action_mode") != "tactical":
             raise ValueError(f"{run_dir}: closed-loop play needs a tactical-action run")
         with open(os.path.join(run_dir, "meta.json"), encoding="utf-8") as f:
@@ -39,7 +51,11 @@ class RunPolicy:
     def act(self, key, obs_vec: np.ndarray, t_index: int, last_reward: float = 0.0) -> np.ndarray:
         o = self.norm.normalize(torch.as_tensor(obs_vec, dtype=torch.float32, device=self.device))
         if self.algo != "dt":
-            return self.model.act(o.unsqueeze(0), deterministic=self.deterministic)[0].cpu().numpy()
+            a = self.model.act(o.unsqueeze(0), deterministic=True)[0].cpu().numpy()
+            if self.gate == "sample":
+                _, logit, _ = self.model.policy.heads(o.unsqueeze(0))
+                a[2] = float(self.rng.random() < float(torch.sigmoid(logit)[0]))
+            return a
         h = self.hist.setdefault(key, dict(obs=[], act=[], rtg=[], ts=[], ret=self.target_return))
         if h["obs"]:
             h["ret"] -= last_reward              # return-to-go, decremented by realised reward
@@ -58,7 +74,9 @@ class RunPolicy:
         rtg[0, -k:, 0] = torch.tensor(h["rtg"][-k:], device=self.device)
         ts[0, -k:] = torch.tensor(h["ts"][-k:], device=self.device)
         mask[0, -k:] = 1.0
-        a = self.model.act(obs, act, rtg, ts, mask)[0]
+        a = self.model.act(obs, act, rtg, ts, mask)[0]       # a[2] is p_fire here
+        if self.gate == "sample":
+            a[2] = float(self.rng.random() < float(a[2]))
         # feed back the action as the dataset encodes it: hard gate, target distribution
         fed = a.clone()
         fed[2] = (fed[2] > 0.5).float()

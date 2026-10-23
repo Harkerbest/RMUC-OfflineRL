@@ -10,8 +10,10 @@ grid is used for every arm, so arms are compared on paired matches.
 Arms:
     script                 the team script drives the infantry too (reference)
     random                 uniform tactical commands (floor)
-    NAME=RUN_DIR[:vision]  a trained tactical run (BC / IQL / DT / MAPPO export);
-                           ':vision' gates enemy positions by Arena's camera model
+    NAME=RUN_DIR[:FLAG...] a trained tactical run (BC / IQL / DT / MAPPO export);
+                           ':vision' gates enemy positions by Arena's camera model,
+                           ':sample' draws the weapons-free gate from p_fire instead
+                           of thresholding it at 0.5 (see sim.policies.RunPolicy)
 
     python -m rm_rl.eval.closed_loop \\
         --arm script --arm random \\
@@ -44,12 +46,15 @@ def parse_arm(spec: str, default_info: str):
     if "=" not in spec:
         if spec not in ("script", "random"):
             raise SystemExit(f"unknown arm {spec!r}")
-        return dict(name=spec, kind=spec, run=None, enemy_info=default_info)
+        return dict(name=spec, kind=spec, run=None, enemy_info=default_info,
+                    gate="sample" if spec == "random" else "script")
     name, rest = spec.split("=", 1)
-    info = default_info
-    if rest.endswith(":vision") or rest.endswith(":full"):
-        rest, info = rest.rsplit(":", 1)
-    return dict(name=name, kind="run", run=rest, enemy_info=info)
+    arm = dict(name=name, kind="run", enemy_info=default_info, gate="threshold")
+    while rest.rsplit(":", 1)[-1] in ("vision", "full", "sample", "threshold"):
+        rest, flag = rest.rsplit(":", 1)
+        arm["gate" if flag in ("sample", "threshold") else "enemy_info"] = flag
+    arm["run"] = rest
+    return arm
 
 
 class PolicyAgent:
@@ -89,7 +94,7 @@ def play(job):
     elif arm["kind"] == "random":
         agent = PolicyAgent(RandomPolicy(job["seed"]))
     else:
-        pol = RunPolicy(arm["run"])
+        pol = RunPolicy(arm["run"], gate=arm["gate"], seed=job["seed"])
         if pol.meta.get("vis_map") and vmap is None:
             raise SystemExit(f"{arm['run']} was trained with a vis_map; pass --vis-map")
         cfg.use_team_prior = bool(pol.meta.get("team_prior"))
@@ -99,7 +104,8 @@ def play(job):
     except Exception as exc:
         return dict(job_key=job["key"], error=repr(exc))
     res = out["result"]
-    res.update(job_key=job["key"], arm=arm["name"], side=job["side"], enemy_info=arm["enemy_info"])
+    res.update(job_key=job["key"], arm=arm["name"], side=job["side"], enemy_info=arm["enemy_info"],
+               gate=arm["gate"], run=arm["run"])
     return res
 
 

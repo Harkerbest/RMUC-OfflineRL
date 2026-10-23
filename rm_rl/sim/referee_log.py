@@ -13,7 +13,7 @@ serves two consumers:
 
 Field mapping (Arena-1 robot -> timeseries column):
 
-    当前血量/最大血量   hp / max_hp           (aerial has none in Arena 2026: 0/0)
+    当前血量/最大血量   hp / max_hp
     x, y, z            pose; buildings stay at (0, 0) like the official log
     枪口朝向            degrees(aim), wrapped to [-140, 220); engineer/buildings -140
     底盘功率            power_w
@@ -23,6 +23,19 @@ Field mapping (Arena-1 robot -> timeseries column):
     队伍总金币          team resources + everything spent so far
     队伍剩余金币        team resources
     是否易伤            0 (Arena has no radar marking)
+
+Dataset conventions.  Several columns are *constant* in the official log, and a
+policy normalises them with the 1e-3 standard-deviation floor, so any deviation
+is amplified ~1000x and saturates the network (measured: a policy fed Arena's
+raw aerial power emitted one constant command all match).  Where Arena-1 models
+a robot differently from the log, the row follows the log:
+
+    空中  (aerial)  100 / 100 HP and 0 W chassis power — the log's aerial row;
+                    Arena 2026's aerial has no hit points and reports flight power
+    哨兵  (slot 7)  health and 17 mm heat as fractions of the log's fixed sentry
+                    caps, 400 HP / 260 heat — Arena 2026 fields an infantry there
+    英雄  (hero)    小热量上限 50, the value the log carries for the hero's
+                    unused 17 mm barrel
 """
 from __future__ import annotations
 
@@ -43,6 +56,10 @@ EV_COLUMNS = ["赛区", "场次号", "赛程", "局号", "game_id", "时刻秒",
 MATCH_COLUMNS = ["赛区", "场次号", "赛程", "局号", "game_id", "web_game_id", "红方学校",
                  "蓝方学校", "胜方", "开始时间", "时长秒"]
 REGION = "Arena-1"
+AERIAL_HP = S.MAX_HP[S.TYPE_AERIAL]                # 100
+SENTRY_HP = S.MAX_HP[S.TYPE_SENTRY]                # 400
+SENTRY_HEAT17 = S.HEAT17_MAX_REF                   # 260
+HERO_HEAT17_MAX = 50.0
 
 # timeseries column -> ASCII alias, for game_arrays_from_df
 _ALIAS = {k: v for k, v in S.TS_COLS.items()}
@@ -65,7 +82,6 @@ class RefereeLog:
         self.last_res: dict = {}
         self.ids: dict = {}                                # arena id -> (robot_id, 类型, team)
         self.last_second = -1
-        self._df_cache = (None, 0)
 
     # ------------------------------------------------------------------ helpers
     def _rid(self, robot):
@@ -124,13 +140,23 @@ class RefereeLog:
             rid, rtype, team = self._rid(r)
             hero, eng = r["role"] == "hero", r["role"] == "engineer"
             s17, s42 = self.shots[r["id"]]
+            hp, max_hp, power = float(r["hp"]), float(r["max_hp"]), float(r.get("power_w", 0.0))
+            h17 = h17max = h42 = h42max = None
+            if hero:
+                h17, h17max, h42, h42max = 0.0, HERO_HEAT17_MAX, float(r["heat"]), float(r["max_heat"])
+            elif not eng:
+                h17, h17max = float(r["heat"]), float(r["max_heat"])
+            if rtype == S.TYPE_AERIAL:
+                hp = max_hp = AERIAL_HP
+                power = 0.0
+            elif rtype == S.TYPE_SENTRY:
+                hp, max_hp = (hp / max_hp * SENTRY_HP if max_hp > 0 else 0.0), SENTRY_HP
+                h17, h17max = (h17 / h17max * SENTRY_HEAT17 if h17max else 0.0), SENTRY_HEAT17
             self.ts_rows.append(self._common(team) + [
                 second, rid, rtype, TEAM_CAMP[team], self.schools[team], self.schools[enemy[team]],
-                float(r["hp"]), float(r["max_hp"]), float(r["x"]), float(self._y(r["y"])), float(r["z"]),
+                hp, max_hp, float(r["x"]), float(self._y(r["y"])), float(r["z"]),
                 S.YAW_SENTINEL if eng else _yaw_deg(r["aim"]) if not self.flip_y else _yaw_deg(-r["aim"]),
-                float(r.get("power_w", 0.0)),
-                None if (hero or eng) else float(r["heat"]), None if (hero or eng) else float(r["max_heat"]),
-                float(r["heat"]) if hero else None, float(r["max_heat"]) if hero else None,
+                power, h17, h17max, h42, h42max,
                 None if (hero or eng) else s17, s42 if hero else None,
                 coins[team][0], coins[team][1], 0])
         for team in ("red", "blue"):
