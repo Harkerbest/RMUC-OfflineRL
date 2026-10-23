@@ -3,8 +3,10 @@
     python -m viz.sim_figures --closed-loop docs/arena/results_real.jsonl \\
         --mappo rm_runs/arena/mappo_from_bc --out viz/figures
 
-closed_loop.png  per arm: win rate (Wilson 95% CI) and mean damage difference
-                 (dealt - taken, bootstrap 95% CI), on the shared match grid
+closed_loop.png  per arm: win rate (Wilson 95% CI), and the damage difference
+                 (dealt - taken) relative to the script arm on the same matches
+                 (paired, bootstrap 95% CI) — opponents differ wildly in
+                 strength, so only the paired difference separates the arms
 mappo.png        MAPPO fine-tuning: rollout win rate, damage difference and
                  KL to the offline prior per iteration
 """
@@ -20,11 +22,12 @@ TH = dict(bg="#0d1117", fg="#e6edf3", dim="#7d8590", grid="#21262d")
 SERIES = "#3987e5"          # one series per panel: the categorical slot-1 dark step
 REF = "#7d8590"
 ORDER = ["script", "random", "bc", "iql", "dt", "bc_sample", "iql_sample", "dt_sample",
-         "bc_auto", "iql_auto", "dt_auto", "bc_vision", "mappo", "mappo_sample"]
+         "bc_auto", "iql_auto", "dt_auto", "bc_vision", "bc_sample_vision", "mappo", "mappo_sample"]
 LABEL = {"script": "脚本(参照)", "random": "随机", "bc": "BC", "iql": "IQL", "dt": "DT",
          "bc_sample": "BC·采样开火", "iql_sample": "IQL·采样开火", "dt_sample": "DT·采样开火",
          "bc_auto": "BC·始终开火", "iql_auto": "IQL·始终开火", "dt_auto": "DT·始终开火",
-         "bc_vision": "BC·视野受限", "mappo": "MAPPO", "mappo_sample": "MAPPO·采样开火"}
+         "bc_vision": "BC·视野受限", "bc_sample_vision": "BC·采样开火·视野受限",
+         "mappo": "MAPPO", "mappo_sample": "MAPPO·采样开火"}
 
 
 def _style(plt, font):
@@ -50,17 +53,20 @@ def closed_loop(path, out, plt, min_n=1):
     count = {a: sum(r["arm"] == a for r in rows) for a in {r["arm"] for r in rows}}
     arms = [a for a in ORDER if count.get(a, 0) >= min_n]
     arms += sorted(a for a in count if a not in ORDER and count[a] >= min_n)
+    key = lambda r: (r["opponent"], r["seed"], r["side"])
+    ref = {key(r): r["damage"] - r["damage_enemy"] for r in rows if r["arm"] == "script"}
     stats = []
     for a in arms:
         rs = [r for r in rows if r["arm"] == a]
         score = sum(r["win"] for r in rs)
-        dd = [r["damage"] - r["damage_enemy"] for r in rs]
-        stats.append((a, len(rs), score / len(rs), wilson(score, len(rs)), float(np.mean(dd)), bootstrap_ci(dd)))
+        dd = [r["damage"] - r["damage_enemy"] - ref[key(r)] for r in rs if key(r) in ref]
+        stats.append((a, len(rs), score / len(rs), wilson(score, len(rs)),
+                      float(np.mean(dd)) if dd else np.nan, bootstrap_ci(dd) if len(dd) > 1 else (np.nan,) * 2))
     fig, axes = plt.subplots(1, 2, figsize=(10, 0.55 * len(arms) + 1.4), facecolor=TH["bg"],
                              sharey=True, gridspec_kw=dict(wspace=0.08))
     y = np.arange(len(stats))[::-1]
     panels = [(axes[0], 2, 3, "胜率（平局计 ½）· Wilson 95% CI", "{:.2f}"),
-              (axes[1], 4, 5, "伤害差（造成 - 承受）· bootstrap 95% CI", "{:+.0f}")]
+              (axes[1], 4, 5, "伤害差（造成 - 承受）相对脚本 · 同局配对 bootstrap 95% CI", "{:+.0f}")]
     for ax, vi, ci, title, fmt in panels:
         _axes(ax)
         for yy, s in zip(y, stats):
@@ -68,11 +74,13 @@ def closed_loop(path, out, plt, min_n=1):
             col = REF if s[0] in ("script", "random") else SERIES
             ax.plot([lo, hi], [yy, yy], color=col, lw=2, solid_capstyle="round")
             ax.plot(s[vi], yy, "o", ms=8, color=col, mec=TH["bg"], mew=2, zorder=3)
-            ax.annotate(fmt.format(s[vi]), (hi, yy), xytext=(6, 0), textcoords="offset points",
-                        va="center", fontsize=9, color=TH["fg"])
-        ref = next((s for s in stats if s[0] == "script"), None)
-        if ref is not None:
-            ax.axvline(ref[vi], color=REF, lw=1, ls=(0, (3, 3)), zorder=1)
+            if np.isfinite(s[vi]):
+                ax.annotate(fmt.format(s[vi]), (s[vi] if not np.isfinite(hi) else hi, yy), xytext=(6, 0),
+                            textcoords="offset points", va="center", fontsize=9, color=TH["fg"], zorder=4,
+                            bbox=dict(boxstyle="round,pad=0.15", fc=TH["bg"], ec="none"))
+        base = next((s for s in stats if s[0] == "script"), None)
+        if base is not None:
+            ax.axvline(base[vi], color=REF, lw=1, ls=(0, (3, 3)), zorder=1)
         ax.set_title(title, fontsize=10, color=TH["fg"], loc="left")
     axes[0].set_yticks(y, [f"{LABEL.get(s[0], s[0])}  n={s[1]}" for s in stats], color=TH["fg"])
     axes[0].set_xlim(-0.02, 1.08)
