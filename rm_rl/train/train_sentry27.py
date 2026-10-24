@@ -117,10 +117,10 @@ class League:
         dst = os.path.join(self.root, f"{name}.pt")
         shutil.copy(src, dst)
         self.members[name] = dict(path=dst, version=version, games=0, score=0.0)
-        if len(self.members) > self.max_size:          # drop the snapshot the learner beats most
+        if len(self.members) > self.max_size:          # retire the snapshot the learner beats most
             old = max((n for n in self.members if n != name),
                       key=lambda n: self._score(n) if self.members[n]["games"] >= 10 else -1)
-            os.remove(self.members.pop(old)["path"])
+            self.members.pop(old)                      # its file stays: running jobs may still load it
         self.save()
 
     def _score(self, name):
@@ -293,7 +293,13 @@ def main():
             t0 = time.time()
             rolls, stale = [], 0
             while len(rolls) < episodes:
-                r = results.get()
+                try:
+                    r = results.get(timeout=max(1200.0, 4 * args.duration))
+                except queue.Empty:                    # a worker died mid-match: refill the pipeline
+                    print(f"[sentry27] no result for a while; refilling {args.workers} jobs", flush=True)
+                    for _ in range(args.workers):
+                        submit()
+                    continue
                 submit()
                 if isinstance(r, BaseException):
                     errors += 1

@@ -56,6 +56,7 @@ RoboMaster 超级对抗赛（RMUC）官方于7月18日在论坛发布了 [RMUC 2
 - [计划](#计划)
 - [Jev 评估](#jev-评估)
 - [仿真闭环（Arena-1）](#仿真闭环arena-1)
+- [2027 哨兵决策层（Arena-1 自博弈）](#2027-哨兵决策层arena-1-自博弈)
 - [参考](#参考)
 - [团队与引用](#团队与引用)
 - [License](#license)
@@ -386,10 +387,11 @@ rm_rl/
 │   │   ├── build_dataset.py     # SQLite → 轨迹 → 转移 → 分片
 │   │   ├── check_dataset.py     # 训练前自检
 │   │   └── dataset.py           # 转移集 / 序列集 + 归一化
-│   ├── algos/                   # action_spec · networks(含 HybridPolicy) · iql · bc · dt · mappo
-│   ├── eval/                    # ope_fqe · ope_dt · win_alignment · closed_loop（仿真闭环评估）
-│   ├── train/                   # common(DDP) · train_offline · train_dt · train_mappo
+│   ├── algos/                   # action_spec · networks(含 HybridPolicy) · iql · bc · dt · mappo · macro_ppo
+│   ├── eval/                    # ope_fqe · ope_dt · win_alignment · closed_loop · eval_sentry27（配对评估）
+│   ├── train/                   # common(DDP) · train_offline · train_dt · train_mappo · train_sentry27
 │   ├── sim/                     # Arena-1 桥接：裁判日志 · SQLite 导出 · 在线 161 维观测 · 控制器 · 对局
+│   ├── arena27/                 # 2027 哨兵决策层：快照 · 特征/掩码 · 宏动作执行器 · 行为树 · 对局 · 实车运行时
 │   └── deploy.py                # 载入 + 反归一化 + 安全约束
 ├── viz/
 │   ├── export_replay.py         # 一场比赛 + 模型逐秒决策 → JSON
@@ -399,9 +401,10 @@ rm_rl/
 │   ├── policy_field.py          # 全场策略向量场（静态图 / 动画 / --report）
 │   ├── field_canvas.py          # 场地底图标定（裁判原点 ≠ 图片角点）
 │   ├── sim_figures.py           # 仿真闭环评估图 / MAPPO 训练曲线
+│   ├── sentry27_figures.py      # 2027 哨兵训练曲线 / 配对评估图
 │   └── assets/                  # 场地底图放置处（DJI 素材，不随仓库分发）
 ├── jev_demo/                    # Jev 对照评估：实验脚本 + REPORT.md
-└── docs/                        # logo · arena/（仿真闭环报告与逐局结果）
+└── docs/                        # logo · arena/（仿真闭环报告与逐局结果）· sentry27/（2027 哨兵：设计、上车、服务器提示词）
 ```
 
 ## 部署
@@ -438,8 +441,8 @@ cmd = apply_safety(cmd, heat=h, heat_limit=hl, ammo_left=a, ego_xy=(x, y))
 **2. 闭环仿真**
 
 - ~~对接现有 RM 模拟器接口~~：已对接 Arena-1，闭环评估与 MAPPO 微调见[仿真闭环](#仿真闭环arena-1)。
-- 在线 RL 尚未带来提升（30 轮 MAPPO 持平 BC）：先给仿真提速、按对手分组做课程，再做自博弈 / 联赛。
-- 修正动作空间的两处语义：门控标签（发射率 → 许可）、补给（剩余弹量不可观测）。
+- ~~自博弈 / 联赛~~：2027 规则下的哨兵决策层（行为树同一接口、配对评估、实车运行时）已就绪，见 [2027 哨兵决策层](#2027-哨兵决策层arena-1-自博弈)；待在多核服务器上完成正式训练。
+- 全队（3 / 4 / 7 号位）战术与"人类基准"：战术指挥台（人用同一套宏动作实时指挥）尚未实现。
 
 **3. 数据与算法**
 
@@ -502,6 +505,26 @@ export ARENA1_ROOT=/path/to/Arena-1        # 编译好引擎的 Arena-1 checkout
 bash scripts/sim_experiments.sh             # 一致性校验 → 闭环评估 → MAPPO → 再评估（SIM=1 用仿真数据训练替身）
 ```
 
+
+## 2027 哨兵决策层（Arena-1 自博弈）
+
+Arena-1 已默认采用 **RMUC 2027 规则**（控制点与控制度、哨兵三种姿态与每分钟 100 发配给、17mm 全队 1000 发兑换上限、重型机器人、全自动空中机器人）。161 维离线特征表达不了这些机制，2027 也还没有人类数据。因此 [`rm_rl/arena27/`](rm_rl/arena27/) 直接为**实车上行为树所在的那一层**训练策略：
+
+- **输入**：裁判系统和自身相机能拿到的快照。敌人位置只来自哨兵自己的相机，实车可以逐项填写。
+- **输出**：行为树会下达的宏动作，包括去哪个点、自瞄优先打谁、姿态与强化、兑换/回血/复活。
+- **执行器**：导航和自瞄由执行器负责，策略、行为树、随机共用同一个，评估只比较决策。
+- **训练**：先模仿行为树，再用 PPO 自博弈；对手联赛由镜像、PFSP 历史快照、行为树、对方脚本哨兵组成。
+- **评估**：用训练中从未出现过的队伍脚本做配对评估，判据是相对行为树的配对得分差，95% 置信区间下界 > 0。
+- **上车**：纯 numpy 运行时，和 torch 逐项一致，出现异常回退行为树。
+
+设计、实车字段来源、上车步骤见 [docs/sentry27/README.md](docs/sentry27/README.md)；服务器上的一键流程和给服务器 agent 的提示词见 [docs/sentry27/SERVER_PROMPT.md](docs/sentry27/SERVER_PROMPT.md)。
+
+```bash
+export ARENA1_ROOT=/path/to/Arena-1        # 已验证 bbaa885；编译 simulation/ 引擎
+bash scripts/sentry27.sh                     # 自检 → 基线评估 → 训练 → 评估（均可续跑）
+```
+
+正式训练需要多核服务器（单核约 1 倍实时，一次完整训练约需 4 万局）；开发环境（4 核）只做了流程验证。
 
 
 ## 参考
