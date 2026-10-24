@@ -17,6 +17,10 @@ Phases
         bt         a behaviour tree (balanced / guard / assault)
         script     the opposing team script's own sentry
      A snapshot joins the league every `--snapshot-every` iterations.
+     PPO is anchored to the imitated tree by prior_kl * KL(pi || tree policy)
+     (annealed 0.1 -> 0.01) and uses a small entropy bonus: in a short run from an
+     imitated, near-deterministic start, an unanchored update with a 0.01 entropy
+     bonus first made the greedy policy significantly worse than the tree.
 
 Rollouts are asynchronous: every worker plays full matches back to back with the
 newest policy available when its match starts; the learner trains on matches
@@ -182,11 +186,11 @@ def main():
     ap.add_argument("--minibatch", type=int, default=4096)
     ap.add_argument("--clip", type=float, default=0.2)
     ap.add_argument("--vf-coef", type=float, default=0.5)
-    ap.add_argument("--prior-kl", type=float, default=0.0,
+    ap.add_argument("--prior-kl", type=float, default=0.1,
                     help="KL(pi || policy at the end of imitation) coefficient at the first PPO update")
-    ap.add_argument("--prior-kl-final", type=float, default=0.0, help="... annealed linearly to this at --iters")
-    ap.add_argument("--ent-coef", type=float, default=0.01)
-    ap.add_argument("--ent-coef-final", type=float, default=0.002)
+    ap.add_argument("--prior-kl-final", type=float, default=0.01, help="... annealed linearly to this at --iters")
+    ap.add_argument("--ent-coef", type=float, default=0.003)
+    ap.add_argument("--ent-coef-final", type=float, default=0.001)
     ap.add_argument("--gamma", type=float, default=0.995)
     ap.add_argument("--lam", type=float, default=0.95)
     ap.add_argument("--reward", default="", help="overrides, e.g. control=0.02,win=10")

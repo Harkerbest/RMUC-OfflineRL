@@ -46,7 +46,9 @@
 - PPO 阶段：
   - approx_kl 多数 < 0.03，clipfrac < 0.3；
   - explained_var 应逐步升到 0.5 以上；
-  - entropy 平缓下降，不应突然掉到接近 0。
+  - entropy 平缓变化，不应突然掉到接近 0；
+  - kl_prior 是离模仿策略的距离。默认锚定（0.1 → 0.01）是为了防止 PPO 早期把贪心策略推坏；
+    如果 100 次更新后 kl_prior 仍接近 0、得分也不动，说明锚太紧，可以用 --prior-kl 0.03 在新目录重训，并在汇报里说明。
 - errors 应保持为 0。偶发几次可以；持续增长就停下，看日志里的 "rollout error"。
 - score_script / score_bt 是学习者对固定对手的得分（采样策略，含探索），应缓慢上升；score_mirror 应在 0.5 左右。
 - 关注 seat_no_ammo、seat_own_central、seat_deaths。行为出现异常时（例如得分上升但 seat_own_central 掉到接近 0，
