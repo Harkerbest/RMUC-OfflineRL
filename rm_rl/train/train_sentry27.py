@@ -56,7 +56,7 @@ TRAIN_TEAMS = ("claude_opus55_xhigh_2027_team,claude_opus55_xhigh_2027_hold,clau
 EVAL_TEAMS = ("gemini38_2027_hunter,gpt61_2027_trident,gpt61_2027_lineup_serial,gpt61_2027_lineup_dual_arm,"
               "dsv41_1017_pair_s2772,dsv41_1017_sentry_dual_arm,step5_2027_echo")
 TACTICS = ("balanced", "guard", "assault")
-METRICS = ("v_loss", "pi_loss", "entropy", "approx_kl", "clipfrac", "imit_acc")
+METRICS = ("v_loss", "pi_loss", "entropy", "approx_kl", "clipfrac", "kl_prior", "imit_acc")
 
 
 # --------------------------------------------------------------------------- workers
@@ -182,6 +182,9 @@ def main():
     ap.add_argument("--minibatch", type=int, default=4096)
     ap.add_argument("--clip", type=float, default=0.2)
     ap.add_argument("--vf-coef", type=float, default=0.5)
+    ap.add_argument("--prior-kl", type=float, default=0.0,
+                    help="KL(pi || policy at the end of imitation) coefficient at the first PPO update")
+    ap.add_argument("--prior-kl-final", type=float, default=0.0, help="... annealed linearly to this at --iters")
     ap.add_argument("--ent-coef", type=float, default=0.01)
     ap.add_argument("--ent-coef-final", type=float, default=0.002)
     ap.add_argument("--gamma", type=float, default=0.995)
@@ -255,6 +258,8 @@ def main():
 
     policy_path = publish()
     log = C.CsvLogger(os.path.join(args.out, "train_log.csv"))
+    prior_path = os.path.join(args.out, "prior.pt")
+    prior = load_policy(prior_path).to(device) if os.path.exists(prior_path) else None
 
     def make_job():
         nonlocal seed_ctr
@@ -319,7 +324,10 @@ def main():
                 rolls.append(r)
             t_roll = time.time() - t0
             imitation = it < args.imitate_iters and bool(args.imitate)
-            row = update(algo, opt, rolls, args, device, imitation, it)
+            if not imitation and prior is None and args.prior_kl > 0:
+                save_policy(algo.policy, prior_path)     # the imitated tree, frozen
+                prior = load_policy(prior_path).to(device)
+            row = update(algo, opt, rolls, args, device, imitation, it, prior)
             it += 1
             version += 1
             policy_path = publish()
@@ -342,7 +350,7 @@ def main():
         pool.terminate()
 
 
-def update(algo, opt, rolls, args, device, imitation, it):
+def update(algo, opt, rolls, args, device, imitation, it, prior=None):
     trajs = [tr for r in rolls for tr in r["trajs"]]
     cat = lambda k, dt=None: torch.as_tensor(np.concatenate([t[k] for t in trajs]), dtype=dt, device=device)
     obs, g = cat("obs", torch.float32), cat("g", torch.float32)
@@ -362,6 +370,7 @@ def update(algo, opt, rolls, args, device, imitation, it):
     ev = 1.0 - float(torch.var(batch["ret"] - batch["v_old"]) / (torch.var(batch["ret"]) + 1e-8))
     frac = min(max(it - args.imitate_iters, 0) / max(args.iters - args.imitate_iters, 1), 1.0)
     algo.ent_coef = args.ent_coef + (args.ent_coef_final - args.ent_coef) * frac
+    prior_kl = args.prior_kl + (args.prior_kl_final - args.prior_kl) * frac
     n, agg, nmb, epochs = obs.shape[0], {}, 0, 0
     algo.train()
     for _ in range(args.imitate_epochs if imitation else args.epochs):
@@ -369,7 +378,8 @@ def update(algo, opt, rolls, args, device, imitation, it):
         kl = []
         for s in range(0, n, args.minibatch):
             idx = perm[s:s + args.minibatch]
-            loss, met = algo({k: v[idx] for k, v in batch.items()}, imitation=imitation)
+            loss, met = algo({k: v[idx] for k, v in batch.items()}, imitation=imitation, prior=prior,
+                             prior_kl=prior_kl)
             opt.zero_grad(set_to_none=True)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(algo.parameters(), 0.5)

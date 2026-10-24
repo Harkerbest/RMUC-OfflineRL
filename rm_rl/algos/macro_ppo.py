@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
-from torch.distributions import Categorical
+from torch.distributions import Categorical, kl_divergence
 
 from .mappo import RunningMeanStd, gae  # noqa: F401  (gae re-exported for the trainer)
 from .networks import mlp
@@ -80,14 +80,18 @@ class PPO(nn.Module):
         """Critic values in return units."""
         return self.value_norm.denormalize(self.critic(g))
 
-    def forward(self, b, imitation=False):
-        """Loss on a minibatch.  Keys: obs, mask, act, logp, adv, ret, v_old, g."""
+    def forward(self, b, imitation=False, prior=None, prior_kl=0.0):
+        """Loss on a minibatch.  Keys: obs, mask, act, logp, adv, ret, v_old, g.
+        `prior` (a frozen MultiHeadPolicy) adds prior_kl * KL(pi || prior) — the anchor
+        to the imitated tree that keeps early PPO from drifting (AlphaStar's KL to its
+        supervised policy)."""
         v = self.critic(b["g"])
         ret_n, v_old_n = self.value_norm.normalize(b["ret"]), self.value_norm.normalize(b["v_old"])
         v_clip = v_old_n + (v - v_old_n).clamp(-self.value_clip, self.value_clip)
         v_loss = torch.max((v - ret_n).pow(2), (v_clip - ret_n).pow(2)).mean()
-        logp, ent = self.policy.evaluate(b["obs"], b["mask"], b["act"])
-        ent = ent.mean()
+        ds = self.policy.dists(b["obs"], b["mask"])
+        logp = sum(d.log_prob(b["act"][:, i]) for i, d in enumerate(ds))
+        ent = sum(d.entropy() for d in ds).mean()
         if imitation:
             pi_loss = -logp.mean()
             with torch.no_grad():
@@ -105,7 +109,14 @@ class PPO(nn.Module):
             clipfrac = ((ratio - 1).abs() > self.clip).float().mean()
         metrics = dict(v_loss=v_loss.detach(), pi_loss=pi_loss.detach(), entropy=ent.detach(),
                        approx_kl=approx_kl, clipfrac=clipfrac)
-        return pi_loss + self.vf_coef * v_loss - self.ent_coef * ent, metrics
+        loss = pi_loss + self.vf_coef * v_loss - self.ent_coef * ent
+        if prior is not None and prior_kl > 0:
+            with torch.no_grad():
+                pd = prior.dists(b["obs"], b["mask"])
+            kl = sum(kl_divergence(d, q) for d, q in zip(ds, pd)).mean()
+            loss = loss + prior_kl * kl
+            metrics["kl_prior"] = kl.detach()
+        return loss, metrics
 
 
 def save_policy(policy: MultiHeadPolicy, path: str, extra=None):
