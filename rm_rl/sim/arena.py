@@ -120,16 +120,21 @@ class ArenaMatch:
     """
 
     def __init__(self, arena, red: ScriptedSide | None, blue: ScriptedSide | None,
-                 seed=0, duration=420.0, map_name="rmuc2026", lineups=None):
+                 seed=0, duration=420.0, map_name="rmuc2026", lineups=None, lineup_overrides=None):
         self.arena, self.sides = arena, {"red": red, "blue": blue}
         random.seed(seed)        # strategies draw from the shared `random` module
         season = arena.seasons.season_of_map(map_name)
-        if lineups is None and any(s is not None and s.lineup for s in self.sides.values()):
+        if lineups is None and (lineup_overrides or any(s is not None and s.lineup
+                                                        for s in self.sides.values())):
             # each side fields the hardware its strategy was registered with
             default = arena.seasons.default_lineup(season)
             lineups = {team: [{"slot": int(k), "model": int(v)}
                               for k, v in ((s and s.lineup) or default).items()]
                        for team, s in self.sides.items()}
+        # {team: {slot: model}}: e.g. field the sentry model a policy is trained for
+        for team, models in (lineup_overrides or {}).items():
+            for entry in lineups[team]:
+                entry["model"] = int(models.get(str(entry["slot"]), entry["model"]))
         self.match = arena.engine.Match(seed=seed, duration=duration, map_name=map_name,
                                         lineups=lineups)
         self.slots = [str(s) for s in arena.seasons.slots(season)]
