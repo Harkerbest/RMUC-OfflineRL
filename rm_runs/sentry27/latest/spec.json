@@ -1,0 +1,446 @@
+{
+ "decision_dt": 1.0,
+ "team_frame": "red; blue (x, y) -> (28 - x, 15 - y), angles + pi",
+ "heads": [
+  {
+   "name": "goal",
+   "choices": [
+    "hold",
+    "own_central",
+    "own_outpost",
+    "own_highland",
+    "own_fortress",
+    "own_base",
+    "own_supply",
+    "own_road",
+    "own_high_point",
+    "enemy_central",
+    "enemy_outpost",
+    "enemy_highland",
+    "enemy_fortress",
+    "enemy_road",
+    "chase"
+   ]
+  },
+  {
+   "name": "target",
+   "choices": [
+    "nearest",
+    "weakest",
+    "heavy_first",
+    "structure_first",
+    "hold_fire"
+   ]
+  },
+  {
+   "name": "posture",
+   "choices": [
+    "keep",
+    "attack",
+    "defense",
+    "move"
+   ]
+  },
+  {
+   "name": "enhance",
+   "choices": [
+    "off",
+    "on"
+   ]
+  },
+  {
+   "name": "supply",
+   "choices": [
+    "none",
+    "buy_ammo",
+    "remote_heal",
+    "revive"
+   ]
+  }
+ ],
+ "waypoints": {
+  "red": {
+   "own_central": [
+    10.8,
+    7.5
+   ],
+   "own_outpost": [
+    11.355912155925997,
+    10.910033925889088
+   ],
+   "own_highland": [
+    8.765,
+    7.5
+   ],
+   "own_fortress": [
+    6.571,
+    7.5
+   ],
+   "own_base": [
+    3.8609999999999998,
+    7.5
+   ],
+   "own_supply": [
+    1.4,
+    13.0
+   ],
+   "own_road": [
+    7.976000000000001,
+    12.56
+   ],
+   "own_high_point": [
+    1.3,
+    2.9
+   ],
+   "enemy_central": [
+    17.2,
+    7.5
+   ],
+   "enemy_outpost": [
+    16.644087844074,
+    4.089966074110912
+   ],
+   "enemy_highland": [
+    19.235,
+    7.5
+   ],
+   "enemy_fortress": [
+    21.429,
+    7.5
+   ],
+   "enemy_road": [
+    20.024,
+    2.44
+   ]
+  },
+  "blue": {
+   "own_central": [
+    17.2,
+    7.5
+   ],
+   "own_outpost": [
+    16.644087844074,
+    4.089966074110912
+   ],
+   "own_highland": [
+    19.235,
+    7.5
+   ],
+   "own_fortress": [
+    21.429,
+    7.5
+   ],
+   "own_base": [
+    24.139,
+    7.5
+   ],
+   "own_supply": [
+    26.6,
+    2.0
+   ],
+   "own_road": [
+    20.024,
+    2.44
+   ],
+   "own_high_point": [
+    26.7,
+    12.1
+   ],
+   "enemy_central": [
+    10.8,
+    7.5
+   ],
+   "enemy_outpost": [
+    11.355912155925997,
+    10.910033925889088
+   ],
+   "enemy_highland": [
+    8.765,
+    7.5
+   ],
+   "enemy_fortress": [
+    6.571,
+    7.5
+   ],
+   "enemy_road": [
+    7.976000000000001,
+    12.56
+   ]
+  }
+ },
+ "obs_names": [
+  "t",
+  "t_left",
+  "after_180",
+  "after_240",
+  "after_300",
+  "after_361",
+  "coins",
+  "logistics",
+  "ammo_cap_left",
+  "control_own",
+  "control_enemy",
+  "control_lead",
+  "damage_own",
+  "damage_enemy",
+  "damage_lead",
+  "own_outpost_ours",
+  "own_outpost_theirs",
+  "own_outpost_full",
+  "own_outpost_progress",
+  "own_outpost_we_on",
+  "own_outpost_they_on",
+  "enemy_outpost_ours",
+  "enemy_outpost_theirs",
+  "enemy_outpost_full",
+  "enemy_outpost_progress",
+  "enemy_outpost_we_on",
+  "enemy_outpost_they_on",
+  "own_base_ours",
+  "own_base_theirs",
+  "own_base_full",
+  "own_base_progress",
+  "own_base_we_on",
+  "own_base_they_on",
+  "enemy_base_ours",
+  "enemy_base_theirs",
+  "enemy_base_full",
+  "enemy_base_progress",
+  "enemy_base_we_on",
+  "enemy_base_they_on",
+  "own_base_hp",
+  "own_base_open",
+  "own_site_outpost_hp",
+  "own_site_outpost_ours",
+  "own_site_outpost_still",
+  "enemy_base_hp",
+  "enemy_base_open",
+  "enemy_site_outpost_hp",
+  "enemy_site_outpost_ours",
+  "enemy_site_outpost_still",
+  "x",
+  "y",
+  "vx",
+  "vy",
+  "sin_h",
+  "cos_h",
+  "hp",
+  "max_hp",
+  "heat",
+  "ammo",
+  "no_ammo",
+  "alive",
+  "weak",
+  "invulnerable",
+  "posture_attack",
+  "posture_defense",
+  "posture_move",
+  "enhanced",
+  "posture_ready_in",
+  "posture_time_attack",
+  "enhanced_time_attack",
+  "posture_time_defense",
+  "enhanced_time_defense",
+  "posture_time_move",
+  "enhanced_time_move",
+  "since_damage",
+  "since_shot",
+  "disengaged",
+  "respawn",
+  "pending_ammo",
+  "pending_heal",
+  "defense_buff",
+  "vulnerability",
+  "cooling_mult",
+  "on_exchange",
+  "in_supply",
+  "role_heavy",
+  "role_infantry",
+  "role_sentry",
+  "level",
+  "experience",
+  "rations",
+  "own_central_dx",
+  "own_central_dy",
+  "own_central_dist",
+  "own_outpost_dx",
+  "own_outpost_dy",
+  "own_outpost_dist",
+  "own_highland_dx",
+  "own_highland_dy",
+  "own_highland_dist",
+  "own_fortress_dx",
+  "own_fortress_dy",
+  "own_fortress_dist",
+  "own_base_dx",
+  "own_base_dy",
+  "own_base_dist",
+  "own_supply_dx",
+  "own_supply_dy",
+  "own_supply_dist",
+  "own_road_dx",
+  "own_road_dy",
+  "own_road_dist",
+  "own_high_point_dx",
+  "own_high_point_dy",
+  "own_high_point_dist",
+  "enemy_central_dx",
+  "enemy_central_dy",
+  "enemy_central_dist",
+  "enemy_outpost_dx",
+  "enemy_outpost_dy",
+  "enemy_outpost_dist",
+  "enemy_highland_dx",
+  "enemy_highland_dy",
+  "enemy_highland_dist",
+  "enemy_fortress_dx",
+  "enemy_fortress_dy",
+  "enemy_fortress_dist",
+  "enemy_road_dx",
+  "enemy_road_dy",
+  "enemy_road_dist",
+  "mate0_present",
+  "mate0_dx",
+  "mate0_dy",
+  "mate0_dist",
+  "mate0_hp",
+  "mate0_alive",
+  "mate0_weak",
+  "mate0_heavy",
+  "mate0_infantry",
+  "mate0_sentry",
+  "mate1_present",
+  "mate1_dx",
+  "mate1_dy",
+  "mate1_dist",
+  "mate1_hp",
+  "mate1_alive",
+  "mate1_weak",
+  "mate1_heavy",
+  "mate1_infantry",
+  "mate1_sentry",
+  "mate2_present",
+  "mate2_dx",
+  "mate2_dy",
+  "mate2_dist",
+  "mate2_hp",
+  "mate2_alive",
+  "mate2_weak",
+  "mate2_heavy",
+  "mate2_infantry",
+  "mate2_sentry",
+  "e1_present",
+  "e1_alive",
+  "e1_hp",
+  "e1_heavy",
+  "e1_infantry",
+  "e1_sentry",
+  "e1_seen",
+  "e1_known",
+  "e1_age",
+  "e1_dx",
+  "e1_dy",
+  "e1_dist",
+  "e1_x",
+  "e1_y",
+  "e1_vx",
+  "e1_vy",
+  "e1_invulnerable",
+  "e3_present",
+  "e3_alive",
+  "e3_hp",
+  "e3_heavy",
+  "e3_infantry",
+  "e3_sentry",
+  "e3_seen",
+  "e3_known",
+  "e3_age",
+  "e3_dx",
+  "e3_dy",
+  "e3_dist",
+  "e3_x",
+  "e3_y",
+  "e3_vx",
+  "e3_vy",
+  "e3_invulnerable",
+  "e4_present",
+  "e4_alive",
+  "e4_hp",
+  "e4_heavy",
+  "e4_infantry",
+  "e4_sentry",
+  "e4_seen",
+  "e4_known",
+  "e4_age",
+  "e4_dx",
+  "e4_dy",
+  "e4_dist",
+  "e4_x",
+  "e4_y",
+  "e4_vx",
+  "e4_vy",
+  "e4_invulnerable",
+  "e7_present",
+  "e7_alive",
+  "e7_hp",
+  "e7_heavy",
+  "e7_infantry",
+  "e7_sentry",
+  "e7_seen",
+  "e7_known",
+  "e7_age",
+  "e7_dx",
+  "e7_dy",
+  "e7_dist",
+  "e7_x",
+  "e7_y",
+  "e7_vx",
+  "e7_vy",
+  "e7_invulnerable"
+ ],
+ "enemy_info": "own",
+ "sentry_model": 2771,
+ "slots": [
+  7
+ ],
+ "args": {
+  "arena": null,
+  "out": "rm_runs/sentry27",
+  "workers": 136,
+  "episodes": null,
+  "iters": 300,
+  "duration": 420.0,
+  "decision_dt": 1.0,
+  "slots": "7",
+  "enemy_info": "own",
+  "sentry_model": 2771,
+  "train_teams": "claude_opus55_xhigh_2027_team,claude_opus55_xhigh_2027_hold,claude_opus55_xhigh_2027_squad,claude_opus55_xhigh_2027_distributed,dsv41_1017_heavy,dsv41_1017_pair,dsv41_1017_pair_omni,dsv41_1017_sentry,dsv41_2027_control,gemini38_2027_blitz,gemini38_2027_tech_overload,gpt61_2027_control,gpt61_2027_lineup_assault,gpt61_2027_lineup_omni,gpt61_2027_pressure",
+  "opp_mix": "mirror:0.35,snapshot:0.3,bt:0.15,script:0.2",
+  "imitate": "balanced",
+  "imitate_iters": 6,
+  "snapshot_every": 10,
+  "league_size": 40,
+  "max_lag": 1,
+  "hidden": 256,
+  "depth": 3,
+  "lr": 0.0003,
+  "epochs": 4,
+  "imitate_epochs": 10,
+  "target_kl": 0.03,
+  "minibatch": 4096,
+  "clip": 0.2,
+  "vf_coef": 0.5,
+  "prior_kl": 0.1,
+  "prior_kl_final": 0.01,
+  "ent_coef": 0.003,
+  "ent_coef_final": 0.001,
+  "gamma": 0.995,
+  "lam": 0.95,
+  "reward": "",
+  "shaping_final": 0.3,
+  "export_every": 10,
+  "device": "auto",
+  "seed": 0,
+  "resume": true
+ }
+}
