@@ -63,6 +63,8 @@ def train(run, out, plt):
     ax = axes[2]
     ax.plot(it, _roll(get("seat_own_central")), color=SERIES, lw=2, label="在己方中央高地卡上")
     ax.plot(it, _roll(get("seat_no_ammo")), color="#e5a139", lw=2, label="无弹")
+    if np.isfinite(get("seat_enemy_base")).any():
+        ax.plot(it, _roll(get("seat_enemy_base")), color="#9b6bdf", lw=2, label="在敌方基地卡上")
     ax.set_ylim(-0.02, 1.02)
     ax.set_title("学习者哨兵：存活时间占比", fontsize=10, color=TH["fg"], loc="left")
     ax.legend(frameon=False, fontsize=8, labelcolor=TH["fg"], loc="upper right")

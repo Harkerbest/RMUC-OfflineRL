@@ -66,6 +66,11 @@ TRAIN_TEAMS = ("claude_opus55_xhigh_2027_team,claude_opus55_xhigh_2027_hold,clau
                "gpt61_2027_control,gpt61_2027_lineup_assault,gpt61_2027_lineup_omni,gpt61_2027_pressure")
 EVAL_TEAMS = ("gemini38_2027_hunter,gpt61_2027_trident,gpt61_2027_lineup_serial,gpt61_2027_lineup_dual_arm,"
               "dsv41_1017_pair_s2772,dsv41_1017_sentry_dual_arm,step5_2027_echo")
+# Team scripts whose robots take the enemy base position from its base card (the dsv41
+# "base raid" cards).  Excluded under --no-base-raids, with the raid tree and the
+# enemy_base goal, for the case where the real rules do not allow that capture.
+RAID_TEAMS = ("dsv41_1017_heavy", "dsv41_1017_pair", "dsv41_1017_pair_omni", "dsv41_1017_sentry",
+              "dsv41_1017_pair_s2772", "dsv41_1017_sentry_dual_arm")
 TACTICS = ("balanced", "guard", "assault", "raid")
 METRICS = ("v_loss", "pi_loss", "entropy", "approx_kl", "clipfrac", "kl_prior", "imit_acc")
 
@@ -198,6 +203,9 @@ def main():
     ap.add_argument("--vf-coef", type=float, default=0.5)
     ap.add_argument("--goal-dt", type=float, default=5.0,
                     help="goal commitment: dwell time before the goal is re-decided (1 = free every second)")
+    ap.add_argument("--no-base-raids", action="store_true",
+                    help="rules where the enemy base position cannot be taken from its base card: forbid the "
+                         "enemy_base goal, drop the raid tree and RAID_TEAMS from training")
     ap.add_argument("--forbid-goals", default="",
                     help="goals the policy may never choose, comma-separated (e.g. enemy_base if the real "
                          "rules do not let a robot take the enemy base position from its base card)")
@@ -232,9 +240,13 @@ def main():
     slots = [int(s) for s in args.slots.split(",")]
     from ..arena27.spec import GOAL_NAMES
     forbid = [g for g in args.forbid_goals.split(",") if g]
+    if args.no_base_raids and "enemy_base" not in forbid:
+        forbid.append("enemy_base")
+    if "enemy_base" in forbid and "raid" in args.imitate.split(","):
+        raise SystemExit("--imitate raid needs the enemy_base goal")
     if set(forbid) - set(GOAL_NAMES):
         raise SystemExit(f"--forbid-goals: unknown goals {set(forbid) - set(GOAL_NAMES)}")
-    teams = args.train_teams.split(",")
+    teams = [t for t in args.train_teams.split(",") if not (args.no_base_raids and t in RAID_TEAMS)]
     mix = _parse_mix(args.opp_mix)
     reward0 = asdict(RewardConfig27())
     for kv in filter(None, args.reward.split(",")):

@@ -119,7 +119,7 @@ def summarize(rows, ref):
 
 
 def main():
-    from ..train.train_sentry27 import EVAL_TEAMS
+    from ..train.train_sentry27 import EVAL_TEAMS, RAID_TEAMS
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--arena", default=None)
     ap.add_argument("--out", required=True)
@@ -135,6 +135,8 @@ def main():
     ap.add_argument("--enemy-info", default="own", choices=["own", "team", "full"])
     ap.add_argument("--sentry-model", type=int, default=2771)
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1))
+    ap.add_argument("--no-base-raids", action="store_true",
+                    help="drop the base-raid team scripts (train_sentry27.RAID_TEAMS) from the grid")
     ap.add_argument("--summarize-only", action="store_true")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
@@ -145,8 +147,9 @@ def main():
     done = {r["key"] for r in rows}
     arms = [parse_arm(a) for a in args.arm] or [parse_arm("script"), parse_arm("bt:balanced")]
     jobs = []
-    for own in args.own_teams.split(","):
-        for opp in args.opp_teams.split(","):
+    keep = lambda names: [t for t in names.split(",") if not (args.no_base_raids and t in RAID_TEAMS)]
+    for own in keep(args.own_teams):
+        for opp in keep(args.opp_teams):
             for k in range(args.seeds):
                 for side in ("red", "blue"):
                     for arm in arms:
