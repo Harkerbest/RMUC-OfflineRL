@@ -83,7 +83,8 @@ class SentryRuntime:
         npz = os.path.join(run_dir, "policy.npz")
         self.policy = NumpyPolicy(npz if os.path.exists(npz) else export_numpy(run_dir))
         self.wps = {k: tuple(v) for k, v in self.spec["waypoints"][team].items()}
-        self.builder = ObsBuilder(team, slot, self.wps)
+        self.builder = ObsBuilder(team, slot, self.wps, self.spec.get("goal_dt", 1.0),
+                                  self.spec.get("forbid_goals", ()))
         self.tree, self.fallbacks, self.decisions = tree, 0, 0
 
     def decide(self, snapshot: dict) -> dict:
@@ -102,6 +103,7 @@ class SentryRuntime:
             source = "tree"
             mask = self.builder.mask(snapshot)
             idx = to_indices(TREES[self.tree](snapshot, self.wps, last_supply=self.builder.last_supply), mask)
+        self.builder.commit(idx[0], snapshot["time"])        # goal commitment, as in training
         cmd = {h: choices[i] for (h, choices), i in zip(HEADS, idx)}
         cmd["goal_xy"] = self.wps.get(cmd["goal"])
         cmd["source"] = source

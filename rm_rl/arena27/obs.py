@@ -1,10 +1,20 @@
 """Snapshot -> feature vector, action masks, and the critic's privileged state.
 
 `ObsBuilder` is stateful only in what a robot can remember on its own: where and
-when each enemy was last sensed, and when it last visited the supply zone (the
-sentry's ammo ration accrues there every 60 s).  Features are in the team frame,
-scaled to O(1) and clipped to +-5 — the closed-loop experiments showed what an
-unclipped constant column does to a policy on the robot.
+when each enemy was last sensed, when it last visited the supply zone (the
+sentry's ammo ration accrues there every 60 s), and the goal it is committed to.
+Features are in the team frame, scaled to O(1) and clipped to +-5 — the
+closed-loop experiments showed what an unclipped constant column does to a
+policy on the robot.
+
+Goal commitment (`goal_dt` > 1 s).  A chosen goal is an option, not a one-second
+nudge: it stays latched until the robot has been at the goal for `goal_dt`
+seconds, or `MAX_COMMIT_S` have passed, or something interrupts it (death or
+respawn, turning weak, HP falling below 30%).  While latched the goal head is
+masked to that goal; the other heads still decide every second.  One sampled
+choice therefore carries a whole plan (a 40 s raid on the enemy base card), which
+is what exploration from a near-deterministic imitated start needs.
+`goal_dt` <= 1 s reproduces the original free choice every decision.
 """
 from __future__ import annotations
 
@@ -18,6 +28,9 @@ from .spec import (GROUND_SLOTS, HEAD_SIZES, OTHER, POINT_GOALS, POSTURES, ROLES
 CLIP = 5.0
 AMMO_CAP_17 = 1000.0          # 17 mm a team may buy per match
 CHASE_MEMORY_S = 3.0
+MAX_COMMIT_S = 60.0
+ARRIVE_M = 1.0
+LOW_HP = 0.3
 _POSTURE_IDX = {"attack": 0, "defense": 1, "move": 2}     # order of posture_time
 
 
@@ -45,12 +58,47 @@ class _F:
 
 
 class ObsBuilder:
-    def __init__(self, team: str, slot: int, wps: dict):
+    def __init__(self, team: str, slot: int, wps: dict, goal_dt: float = 1.0, forbid=()):
         self.team, self.enemy, self.slot = team, OTHER[team], int(slot)
+        self.forbid = tuple(forbid)          # goals masked out, e.g. moves the real rules disallow
         self.wp = {k: to_team(*v, team) for k, v in wps.items()}
         self.last_seen = {}                  # enemy slot -> (t, x, y) in the team frame
         self.last_supply = 0.0
         self.names = None
+        # goal commitment
+        self.goal_dt = float(goal_dt)
+        self.goal = GOAL_NAMES.index("hold")
+        self.since = 0.0                     # when the current goal was chosen
+        self.arrived_at = None               # when the robot reached it
+        self.state = (True, False, 1.0)      # (alive, weak, hp fraction) at the last decision
+        self.free = True
+
+    def _update_commitment(self, inp, x, y):
+        s, t = inp["self"], inp["time"]
+        hp = s["hp"] / max(s["max_hp"], 1)
+        alive, weak = bool(s["alive"]), bool(s["weak"])
+        name = GOAL_NAMES[self.goal]
+        if name in self.wp and self.arrived_at is None and math.hypot(self.wp[name][0] - x,
+                                                                       self.wp[name][1] - y) < ARRIVE_M:
+            self.arrived_at = t
+        interrupted = (alive != self.state[0] or weak != self.state[1]
+                       or (hp < LOW_HP <= self.state[2]))
+        if self.goal_dt <= 1.0 or not alive or interrupted:
+            self.free = True
+        elif name in self.wp:
+            self.free = (t - self.since >= MAX_COMMIT_S - 1e-6
+                         or (self.arrived_at is not None and t - self.arrived_at >= self.goal_dt - 1e-6))
+        else:                                # hold / chase: re-decided every goal_dt
+            self.free = t - self.since >= self.goal_dt - 1e-6
+        self.state = (alive, weak, hp)
+
+    def commit(self, goal_idx: int, t: float):
+        """Record the goal chosen at this decision (call after deciding)."""
+        if self.free:
+            # re-choosing the goal it stands on re-arms the dwell; a new goal resets arrival
+            same = int(goal_idx) == self.goal
+            self.arrived_at = t if (same and self.arrived_at is not None) else None
+            self.goal, self.since = int(goal_idx), t
 
     # ------------------------------------------------------------------ features
     def __call__(self, inp: dict) -> np.ndarray:
@@ -114,6 +162,13 @@ class ObsBuilder:
         if s["in_supply"]:
             self.last_supply = t
         f.add("rations", min(math.floor((t - self.last_supply) / 60), 3) / 3)
+        # committed goal
+        self._update_commitment(inp, x, y)
+        for i, g in enumerate(GOAL_NAMES):
+            f.add(f"goal_{g}", i == self.goal)
+        f.add("goal_free", self.free)
+        f.add("goal_age", min(t - self.since, MAX_COMMIT_S) / MAX_COMMIT_S)
+        f.add("goal_arrived", self.arrived_at is not None)
         # waypoints
         for g in POINT_GOALS:
             gx, gy = self.wp[g]
@@ -176,9 +231,12 @@ class ObsBuilder:
             supply[:] = False; supply[0] = True
             supply[SUPPLY.index("revive")] = eco["coins"] >= revive_cost(s.get("level") or 1, t)
             return np.concatenate(heads)
-        for g in UNREACHABLE.get(s["role"], ()):
+        for g in (*UNREACHABLE.get(s["role"], ()), *self.forbid):
             goal[GOAL_NAMES.index(g)] = False
         goal[GOAL_NAMES.index("chase")] = self.chase_target_known(t)
+        if not self.free:                    # committed: the goal head has one choice
+            goal[:] = False
+            goal[self.goal] = True
         ready = t >= s["posture_ready_at"]
         if s["role"] != "sentry":
             posture[1:] = False

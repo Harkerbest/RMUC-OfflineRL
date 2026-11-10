@@ -14,13 +14,20 @@ Phases
         mirror     the current policy (both sides' trajectories are trained on)
         snapshot   a frozen past policy, prioritised by how often it still beats
                    the learner (PFSP, AlphaStar)
-        bt         a behaviour tree (balanced / guard / assault)
+        bt         a behaviour tree (balanced / guard / assault / raid)
         script     the opposing team script's own sentry
      A snapshot joins the league every `--snapshot-every` iterations.
-     PPO is anchored to the imitated tree by prior_kl * KL(pi || tree policy)
-     (annealed 0.1 -> 0.01) and uses a small entropy bonus: in a short run from an
-     imitated, near-deterministic start, an unanchored update with a 0.01 entropy
-     bonus first made the greedy policy significantly worse than the tree.
+
+Exploration (v2).  The first 300-update run imitated the tree to 0.97 accuracy and
+then sat there: total policy entropy 0.06 nats, KL to the tree 0.03-0.12, every
+behavioural statistic unchanged, paired score +0.005 against the tree.  Three
+changes address it:
+  * goal commitment (`--goal-dt`, obs.ObsBuilder): one sampled goal is held until
+    the robot has dwelt there `goal_dt` s, so a single choice carries a whole plan;
+  * an adaptive entropy coefficient that holds the policy entropy at
+    `--target-entropy` nats instead of a fixed bonus;
+  * no KL anchor by default (`--prior-kl` 0): with large batches PPO stayed stable
+    (approx_kl ~0.01) and the anchor only pins the policy to the tree.
 
 Rollouts are asynchronous: every worker plays full matches back to back with the
 newest policy available when its match starts; the learner trains on matches
@@ -59,7 +66,7 @@ TRAIN_TEAMS = ("claude_opus55_xhigh_2027_team,claude_opus55_xhigh_2027_hold,clau
                "gpt61_2027_control,gpt61_2027_lineup_assault,gpt61_2027_lineup_omni,gpt61_2027_pressure")
 EVAL_TEAMS = ("gemini38_2027_hunter,gpt61_2027_trident,gpt61_2027_lineup_serial,gpt61_2027_lineup_dual_arm,"
               "dsv41_1017_pair_s2772,dsv41_1017_sentry_dual_arm,step5_2027_echo")
-TACTICS = ("balanced", "guard", "assault")
+TACTICS = ("balanced", "guard", "assault", "raid")
 METRICS = ("v_loss", "pi_loss", "entropy", "approx_kl", "clipfrac", "kl_prior", "imit_acc")
 
 
@@ -88,13 +95,15 @@ def rollout(job):
     L = job["learner_team"]
     O = OTHER[L]
     learner = TreeDecider(job["imitate"]) if job["imitate"] else PolicyDecider(_policy(job["policy"]))
-    seats = {(L, s): Seat(learner, record=True, label="learner") for s in job["slots"]}
+    gdt, fb = job["goal_dt"], tuple(job["forbid"])   # the imitated tree runs under the same rules
+    seats = {(L, s): Seat(learner, record=True, label="learner", goal_dt=gdt, forbid=fb) for s in job["slots"]}
     opp = job["opponent"]
     if opp["kind"] == "mirror":
-        seats.update({(O, s): Seat(learner, record=True, label="learner") for s in job["slots"]})
+        seats.update({(O, s): Seat(learner, record=True, label="learner", goal_dt=gdt, forbid=fb)
+                      for s in job["slots"]})
     elif opp["kind"] == "snapshot":
         dec = PolicyDecider(_policy(opp["path"]))
-        seats.update({(O, s): Seat(dec, label=opp["name"]) for s in job["slots"]})
+        seats.update({(O, s): Seat(dec, label=opp["name"], goal_dt=gdt, forbid=fb) for s in job["slots"]})
     elif opp["kind"] == "bt":
         dec = TreeDecider(opp["tactic"])
         seats.update({(O, s): Seat(dec, label=opp["name"]) for s in job["slots"]})
@@ -172,7 +181,8 @@ def main():
     ap.add_argument("--sentry-model", type=int, default=2771)
     ap.add_argument("--train-teams", default=TRAIN_TEAMS)
     ap.add_argument("--opp-mix", default="mirror:0.35,snapshot:0.3,bt:0.15,script:0.2")
-    ap.add_argument("--imitate", default="balanced", help="behaviour tree to start from ('' = none)")
+    ap.add_argument("--imitate", default="balanced",
+                    help="behaviour tree(s) to start from, comma-separated (one drawn per match; '' = none)")
     ap.add_argument("--imitate-iters", type=int, default=6)
     ap.add_argument("--snapshot-every", type=int, default=10)
     ap.add_argument("--league-size", type=int, default=40)
@@ -186,10 +196,17 @@ def main():
     ap.add_argument("--minibatch", type=int, default=4096)
     ap.add_argument("--clip", type=float, default=0.2)
     ap.add_argument("--vf-coef", type=float, default=0.5)
-    ap.add_argument("--prior-kl", type=float, default=0.1,
+    ap.add_argument("--goal-dt", type=float, default=5.0,
+                    help="goal commitment: dwell time before the goal is re-decided (1 = free every second)")
+    ap.add_argument("--forbid-goals", default="",
+                    help="goals the policy may never choose, comma-separated (e.g. enemy_base if the real "
+                         "rules do not let a robot take the enemy base position from its base card)")
+    ap.add_argument("--target-entropy", type=float, default=0.5,
+                    help="PPO policy entropy (nats, all heads) the entropy coefficient is adapted to; <=0: fixed schedule")
+    ap.add_argument("--prior-kl", type=float, default=0.0,
                     help="KL(pi || policy at the end of imitation) coefficient at the first PPO update")
-    ap.add_argument("--prior-kl-final", type=float, default=0.01, help="... annealed linearly to this at --iters")
-    ap.add_argument("--ent-coef", type=float, default=0.003)
+    ap.add_argument("--prior-kl-final", type=float, default=0.0, help="... annealed linearly to this at --iters")
+    ap.add_argument("--ent-coef", type=float, default=0.003, help="entropy bonus (start value when adaptive)")
     ap.add_argument("--ent-coef-final", type=float, default=0.001)
     ap.add_argument("--gamma", type=float, default=0.995)
     ap.add_argument("--lam", type=float, default=0.95)
@@ -213,6 +230,10 @@ def main():
     rng = np.random.default_rng(args.seed)
     episodes = args.episodes or args.workers
     slots = [int(s) for s in args.slots.split(",")]
+    from ..arena27.spec import GOAL_NAMES
+    forbid = [g for g in args.forbid_goals.split(",") if g]
+    if set(forbid) - set(GOAL_NAMES):
+        raise SystemExit(f"--forbid-goals: unknown goals {set(forbid) - set(GOAL_NAMES)}")
     teams = args.train_teams.split(",")
     mix = _parse_mix(args.opp_mix)
     reward0 = asdict(RewardConfig27())
@@ -223,7 +244,7 @@ def main():
         reward0[k] = float(v)
 
     arena = load_arena(args.arena)
-    spec = probe_spec(arena)
+    spec = probe_spec(arena, goal_dt=args.goal_dt)
     policy = MultiHeadPolicy(spec["obs_dim"], HEAD_SIZES, args.hidden, args.depth)
     algo = PPO(policy, spec["gdim"], args.hidden, args.depth, clip=args.clip, vf_coef=args.vf_coef,
                ent_coef=args.ent_coef).to(device)
@@ -240,10 +261,11 @@ def main():
         opt.load_state_dict(st["opt"])
         it, version, seed_ctr = st["iteration"], st["version"], st["seed_ctr"]
         rng = np.random.default_rng(st["rng"])
+        algo.ent_coef = st.get("ent_coef", algo.ent_coef)
         print(f"[sentry27] resumed at iteration {it}, version {version}", flush=True)
     spec_json = export_spec(spec["arena"], args.decision_dt, spec["obs_names"],
                             extra=dict(enemy_info=args.enemy_info, sentry_model=args.sentry_model,
-                                       slots=slots, args=vars(args)))
+                                       goal_dt=args.goal_dt, forbid_goals=forbid, slots=slots, args=vars(args)))
 
     def publish():
         path = os.path.join(vdir, f"v{version:05d}.pt")
@@ -277,11 +299,12 @@ def main():
             n = league.sample(rng)
             opp.update(name=n, path=league.members[n]["path"])
         elif kind == "bt":
-            tac = str(rng.choice(TACTICS))
+            tac = str(rng.choice([t for t in TACTICS if not (t == "raid" and "enemy_base" in forbid)]))
             opp.update(tactic=tac, name=f"bt:{tac}")
         side = str(rng.choice(["red", "blue"]))
         shaping = reward0["shaping"] + (args.shaping_final - reward0["shaping"]) * min(it / max(args.iters, 1), 1.0)
-        return dict(version=version, policy=policy_path, imitate=args.imitate if imitating else "",
+        teacher = str(rng.choice(args.imitate.split(","))) if imitating else ""
+        return dict(version=version, policy=policy_path, imitate=teacher, goal_dt=args.goal_dt, forbid=forbid,
                     learner_team=side, slots=slots, opponent=opp, seed=int(seed_ctr),
                     teams={side: str(rng.choice(teams)), OTHER[side]: str(rng.choice(teams))},
                     duration=args.duration, decision_dt=args.decision_dt, enemy_info=args.enemy_info,
@@ -347,7 +370,7 @@ def main():
                                            for k, v in row.items()), flush=True)
             with open(state_path, "wb") as f:
                 torch.save(dict(algo=algo.state_dict(), opt=opt.state_dict(), iteration=it, version=version,
-                                seed_ctr=seed_ctr, rng=int(rng.integers(2**31))), f)
+                                seed_ctr=seed_ctr, rng=int(rng.integers(2**31)), ent_coef=algo.ent_coef), f)
             export("latest")
             if it % args.export_every == 0 or it == args.iters:
                 export(f"iter_{it:04d}")
@@ -373,7 +396,9 @@ def update(algo, opt, rolls, args, device, imitation, it, prior=None):
                  adv=(adv - adv.mean()) / (adv.std() + 1e-8))
     ev = 1.0 - float(torch.var(batch["ret"] - batch["v_old"]) / (torch.var(batch["ret"]) + 1e-8))
     frac = min(max(it - args.imitate_iters, 0) / max(args.iters - args.imitate_iters, 1), 1.0)
-    algo.ent_coef = args.ent_coef + (args.ent_coef_final - args.ent_coef) * frac
+    adaptive = args.target_entropy > 0
+    if not adaptive:
+        algo.ent_coef = args.ent_coef + (args.ent_coef_final - args.ent_coef) * frac
     prior_kl = args.prior_kl + (args.prior_kl_final - args.prior_kl) * frac
     n, agg, nmb, epochs = obs.shape[0], {}, 0, 0
     algo.train()
@@ -397,6 +422,11 @@ def update(algo, opt, rolls, args, device, imitation, it, prior=None):
             break
     algo.eval()
     row = {k: agg[k] / nmb if k in agg else float("nan") for k in METRICS}
+    if adaptive and not imitation:
+        # hold the policy entropy near the target: raise the bonus when below, lower it above
+        h = row["entropy"]
+        step = 0.5 * (args.target_entropy - h) / args.target_entropy
+        algo.ent_coef = float(np.clip(algo.ent_coef * np.exp(np.clip(step, -0.5, 0.5)), 1e-4, 0.05))
     row.update(samples=int(n), epochs=epochs, explained_var=round(ev, 4),
                ret_mean=float(np.mean([t["rew"].sum() for t in trajs])))
     return row
@@ -414,7 +444,7 @@ def _rollout_stats(rolls):
         out[f"n_{k}"] = len(v)
     seats = [s for r in rolls for key, s in r["result"]["seats"].items()
              if s["label"] == "learner" and key.startswith(r["job"]["learner_team"])]
-    for k in ("deaths", "damage", "no_ammo", "own_central", "alive"):
+    for k in ("deaths", "damage", "no_ammo", "own_central", "enemy_base", "alive"):
         out[f"seat_{k}"] = round(float(np.mean([s[k] for s in seats])), 4) if seats else float("nan")
     lead = [r["result"]["control"][r["job"]["learner_team"]] - r["result"]["control"][OTHER[r["job"]["learner_team"]]]
             for r in rolls]

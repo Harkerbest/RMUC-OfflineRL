@@ -11,6 +11,7 @@ random), so evaluations compare decisions only.
     target    auto-aim over enemies the robot's *own* camera sees, ordered by the
               priority; structures (a hostile outpost, an enemy base that can be
               damaged) when the priority asks for them or no robot is in reach.
+              `close_range` engages robots within 6 m only and never structures.
               Fires when aligned, `sdk.can_fire`, and 20 heat of margin (none
               needed while attack posture is enhanced).  `hold_fire` still tracks.
     posture / enhance  sent when they differ from the robot's state and the 5 s
@@ -25,6 +26,7 @@ import math
 from .spec import OTHER, to_team, wrap
 
 _GROUND = ("heavy", "infantry", "sentry")
+CLOSE_RANGE = 6.0     # `close_range`: robots within this distance only, no structures (saves ammo)
 
 
 def _dist(a, b):
@@ -158,16 +160,17 @@ class Executor:
             if s is not None:
                 return s
         ids = set((obs.get("vision", {}).get(str(self.slot)) or {}).get("enemies", []))
+        reach = CLOSE_RANGE if mode == "close_range" else self.reach
         foes = [e for e in obs["enemies"]
                 if e["id"] in ids and e["alive"] and e.get("targetable", True) and not e.get("invulnerable")
-                and e.get("role") in _GROUND and _dist(robot, (e["x"], e["y"])) <= self.reach
+                and e.get("role") in _GROUND and _dist(robot, (e["x"], e["y"])) <= reach
                 and sdk.ballistic_reachable(robot, e)]
         if foes:
             d = lambda e: _dist(robot, (e["x"], e["y"]))
             key = {"weakest": lambda e: (e["hp"], d(e)),
                    "heavy_first": lambda e: (e.get("role") != "heavy", d(e))}.get(mode, d)
             return sdk.intercept(robot, min(foes, key=key))
-        return self._structure(robot, obs) if mode != "structure_first" else None
+        return self._structure(robot, obs) if mode not in ("structure_first", "close_range") else None
 
 
 def _d(a, b):

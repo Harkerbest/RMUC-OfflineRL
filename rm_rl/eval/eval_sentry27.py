@@ -8,7 +8,7 @@ are therefore compared match by match.
 
 Arms (NAME=SPEC, or a bare SPEC used as its own name):
     script          the own team script's own sentry logic
-    bt:<tactic>     behaviour tree in the policy's action space (balanced/guard/assault)
+    bt:<tactic>     behaviour tree in the policy's action space (balanced/guard/assault/raid)
     random          uniform legal macro actions (floor)
     RUN[:sample]    a trained run (rm_runs/sentry27/latest), greedy unless :sample
 
@@ -55,9 +55,11 @@ def play(job):
     side, other = job["side"], OTHER[job["side"]]
     seats = {}
     if job["spec"] != "script":
-        seats[(side, 7)] = Seat(make_decider(job["spec"], _W["cache"], seed=job["seed"]), label=job["arm"])
+        dec = make_decider(job["spec"], _W["cache"], seed=job["seed"])
+        seats[(side, 7)] = Seat(dec, label=job["arm"], goal_dt=dec.goal_dt, forbid=dec.forbid)
     if job["opp_spec"] != "script":
-        seats[(other, 7)] = Seat(make_decider(job["opp_spec"], _W["cache"], seed=job["seed"] + 1), label="opp")
+        dec = make_decider(job["opp_spec"], _W["cache"], seed=job["seed"] + 1)
+        seats[(other, 7)] = Seat(dec, label="opp", goal_dt=dec.goal_dt, forbid=dec.forbid)
     over = {side: {"7": job["sentry_model"]}}
     if job["opp_spec"] != "script":
         over[other] = {"7": job["sentry_model"]}
@@ -73,7 +75,7 @@ def play(job):
                 control_lead=res["control"][side] - res["control"][other],
                 damage_lead=res["damage"][side] - res["damage"][other],
                 base_lead=res["base"][side] - res["base"][other],
-                **{f"seat_{k}": seat.get(k) for k in ("deaths", "damage", "no_ammo", "own_central")},
+                **{f"seat_{k}": seat.get(k) for k in ("deaths", "damage", "no_ammo", "own_central", "enemy_base")},
                 wall=res["wall"])
 
 
@@ -83,8 +85,9 @@ def summarize(rows, ref):
     by_ref = {pair(r): r for r in rows if r["arm"] == ref}
     lines = [f"# 2027 sentry evaluation (paired against `{ref}`)", "",
              "| arm | n | score | 95% CI | W/D/L | control lead | damage lead | Δscore vs ref [95% CI] "
-             "| Δcontrol vs ref [95% CI] | Δdamage vs ref [95% CI] | deaths | no-ammo | on own central |",
-             "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+             "| Δcontrol vs ref [95% CI] | Δdamage vs ref [95% CI] | deaths | no-ammo | on own central "
+             "| on enemy base |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     table = {}
     for a in arms:
         rs = [r for r in rows if r["arm"] == a]
@@ -104,7 +107,7 @@ def summarize(rows, ref):
         lines.append(f"| {a} | {n} | {sc / n:.3f} | [{lo:.2f}, {hi:.2f}] | {w}/{d}/{n - w - d} "
                      f"| {mean('control_lead'):+.1f} | {mean('damage_lead'):+.0f} | {fmt('score', 3)} "
                      f"| {fmt('control_lead', 1)} | {fmt('damage_lead', 0)} | {seat('seat_deaths')} "
-                     f"| {seat('seat_no_ammo')} | {seat('seat_own_central')} |")
+                     f"| {seat('seat_no_ammo')} | {seat('seat_own_central')} | {seat('seat_enemy_base')} |")
         table[a] = dict(n=n, score=sc / n, score_ci=[lo, hi],
                         d_score=float(np.mean(diff["score"])) if diff["score"] else None,
                         d_score_ci=list(ci["score"]), d_control=float(np.mean(diff["control_lead"]))

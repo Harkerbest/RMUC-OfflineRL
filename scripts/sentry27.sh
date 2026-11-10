@@ -6,8 +6,9 @@
 #
 # Stages (each resumes where it stopped; see docs/sentry27/README.md):
 #   selftest  pre-flight checks (engine, features, masks, a short match)
-#   baseline  paired evaluation of the reference arms: team script, the three
-#             behaviour trees, random — on held-out team scripts
+#   baseline  paired evaluation of the reference arms: team script, the four
+#             behaviour trees (balanced, guard, assault, raid), random — on held-out
+#             team scripts
 #   train     tree imitation, then PPO self-play with an opponent league
 #   eval      the trained policy (greedy) and checkpoints against the trees
 set -euo pipefail
@@ -20,8 +21,8 @@ TRAIN_WORKERS="${TRAIN_WORKERS:-$((CPUS > 16 ? CPUS - 8 : CPUS - 1))}"
 EVAL_WORKERS="${EVAL_WORKERS:-$((CPUS > 8 ? CPUS - 4 : CPUS))}"
 ITERS="${ITERS:-300}"
 SEEDS="${SEEDS:-2}"
-OUT="${OUT:-rm_runs/sentry27}"
-EVAL="${EVAL:-rm_runs/sentry27_eval}"
+OUT="${OUT:-rm_runs/sentry27_v2}"           # v1 (the first 300-update run) lives in rm_runs/sentry27
+EVAL="${EVAL:-rm_runs/sentry27_v2_eval}"
 STAGE="${STAGE:-all}"
 CKPT_EVERY="${CKPT_EVERY:-50}"
 
@@ -36,7 +37,7 @@ fi
 if want baseline; then
   log "baselines -> $EVAL (paired, held-out team scripts, $SEEDS seeds x 2 sides)"
   python -m rm_rl.eval.eval_sentry27 --out "$EVAL" --workers "$EVAL_WORKERS" --seeds "$SEEDS" \
-    --arm script --arm bt:balanced --arm bt:guard --arm bt:assault --arm random
+    --arm script --arm bt:balanced --arm bt:guard --arm bt:assault --arm bt:raid --arm random
 fi
 
 if want train; then
@@ -53,7 +54,7 @@ if want eval; then
   done
   log "evaluation of the trained policy -> $EVAL"
   python -m rm_rl.eval.eval_sentry27 --out "$EVAL" --workers "$EVAL_WORKERS" --seeds "$SEEDS" \
-    --arm script --arm bt:balanced --arm bt:guard --arm bt:assault --arm random "${arms[@]}"
+    --arm script --arm bt:balanced --arm bt:guard --arm bt:assault --arm bt:raid --arm random "${arms[@]}"
   python -m rm_rl.arena27.selftest --run "$OUT/latest"
   cat "$EVAL/summary.md"
 fi

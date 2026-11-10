@@ -16,8 +16,9 @@ from .spec import HEAD_SIZES
 
 
 class PolicyDecider:
-    def __init__(self, policy, greedy=False, label="policy"):
-        self.policy, self.greedy, self.label = policy, greedy, label
+    def __init__(self, policy, greedy=False, label="policy", goal_dt=1.0, forbid=()):
+        self.policy, self.greedy, self.label, self.goal_dt = policy, greedy, label, goal_dt
+        self.forbid = tuple(forbid)
 
     def __call__(self, reqs):
         obs = torch.as_tensor(np.stack([r["obs"] for r in reqs]))
@@ -27,6 +28,8 @@ class PolicyDecider:
 
 
 class TreeDecider:
+    goal_dt, forbid = 1.0, ()     # trees decide freely every second (their natural mode)
+
     def __init__(self, tactic="balanced"):
         if tactic not in TREES:
             raise ValueError(f"unknown tree {tactic!r} (one of {tuple(TREES)})")
@@ -38,7 +41,7 @@ class TreeDecider:
 
 
 class RandomDecider:
-    label = "random"
+    label, goal_dt, forbid = "random", 1.0, ()
 
     def __init__(self, seed=0):
         self.rng = np.random.default_rng(seed)
@@ -65,5 +68,25 @@ def make_decider(spec: str, cache: dict | None = None, greedy=True, seed=0):
     path, sample = (spec[:-7], True) if spec.endswith(":sample") else (spec, False)
     cache = cache if cache is not None else {}
     if path not in cache:
-        cache[path] = load_policy(path)
-    return PolicyDecider(cache[path], greedy=greedy and not sample, label=spec)
+        cache[path] = (load_policy(path), run_spec(path))
+    pol, rs = cache[path]
+    return PolicyDecider(pol, greedy=greedy and not sample, label=spec, goal_dt=rs.get("goal_dt", 1.0),
+                         forbid=rs.get("forbid_goals", ()))
+
+
+def run_spec(path: str) -> dict:
+    """spec.json of a run directory, checked against this code's action/feature spec."""
+    import json
+    import os
+    from .spec import SPEC_VERSION
+    d = path if os.path.isdir(path) else os.path.dirname(path)
+    f = os.path.join(d, "spec.json")
+    if not os.path.exists(f):
+        return {}
+    with open(f, encoding="utf-8") as fh:
+        spec = json.load(fh)
+    if spec.get("spec_version", 1) != SPEC_VERSION:
+        raise SystemExit(f"{path} was trained with action/feature spec v{spec.get('spec_version', 1)}; this code "
+                         f"is v{SPEC_VERSION}.  Evaluate it from the commit it was trained with "
+                         f"(v1: a3ced70).")
+    return spec

@@ -30,8 +30,11 @@ GROUND_SLOTS = (1, 3, 4, 7)
 ROLES = ("heavy", "infantry", "sentry")
 MAP_2027 = "rmuc2027"
 
+SPEC_VERSION = 2   # v1: no enemy_base / lanes / close_range, no goal commitment features
+
 # goal head: (name, side, zone kind).  Points are the zone's reference point except
-# where a structure stands on the card (see `waypoints`).
+# where a structure stands on the card (see `waypoints`); "lane" goals are fixed
+# team-frame points on the two flank routes.
 GOALS = (
     ("hold", None, None),
     ("own_central", "own", "central"),
@@ -47,11 +50,16 @@ GOALS = (
     ("enemy_highland", "enemy", "highland_low"),
     ("enemy_fortress", "enemy", "fortress"),
     ("enemy_road", "enemy", "road_0"),
+    ("enemy_base", "enemy", "base_far"),     # far-side pocket of the enemy base card
+    ("lane_south", "lane", None),
+    ("lane_north", "lane", None),
     ("chase", None, None),
 )
+# team-frame flank-route points (both reached by the shared executor from spawn in < 30 s)
+LANES = {"lane_south": (17.4, 1.1), "lane_north": (10.4, 13.9)}
 GOAL_NAMES = tuple(g[0] for g in GOALS)
 POINT_GOALS = tuple(g[0] for g in GOALS if g[1] is not None)
-TARGETS = ("nearest", "weakest", "heavy_first", "structure_first", "hold_fire")
+TARGETS = ("nearest", "weakest", "heavy_first", "structure_first", "close_range", "hold_fire")
 POSTURES = ("keep", "attack", "defense", "move")
 ENHANCE = ("off", "on")
 SUPPLY = ("none", "buy_ammo", "remote_heal", "revive")
@@ -64,6 +72,7 @@ UNREACHABLE = {"sentry": {"own_high_point"}, "heavy": {"own_high_point"}}
 
 # standing offsets on cards whose reference point is a structure (team frame, metres)
 _BASE_STANDOFF = 1.45          # east of the base body, still on the base card
+_BASE_FAR = 1.51               # west of the base body, against the fence: screened from the deck
 _OUTPOST_STANDOFF = 0.62       # from the outpost toward the field centre
 
 
@@ -99,12 +108,15 @@ def waypoints(arena: dict, team: str) -> dict[str, tuple[float, float]]:
     for name, side, kind in GOALS:
         if side is None:
             continue
+        if side == "lane":
+            out[name] = to_team(*LANES[name], team)
+            continue
         owner = team if side == "own" else OTHER[team]
-        z = zones[f"{owner}_{kind}"]
+        z = zones[f"{owner}_{'base' if kind == 'base_far' else kind}"]
         x, y = z["x"], z["y"]
-        if kind == "base":
+        if kind in ("base", "base_far"):
             tx, ty = to_team(x, y, owner)
-            x, y = to_team(tx + _BASE_STANDOFF, ty, owner)
+            x, y = to_team(tx + (_BASE_STANDOFF if kind == "base" else -_BASE_FAR), ty, owner)
         elif kind == "outpost":
             dx, dy = CENTER[0] - x, CENTER[1] - y
             d = math.hypot(dx, dy) or 1.0
@@ -118,6 +130,7 @@ def waypoints(arena: dict, team: str) -> dict[str, tuple[float, float]]:
 
 def export_spec(arena: dict, decision_dt: float, obs_names: list[str], extra=None) -> dict:
     return dict(
+        spec_version=SPEC_VERSION,
         decision_dt=decision_dt, team_frame="red; blue (x, y) -> (28 - x, 15 - y), angles + pi",
         heads=[dict(name=k, choices=list(v)) for k, v in HEADS],
         waypoints={t: {k: list(v) for k, v in waypoints(arena, t).items()} for t in ("red", "blue")},

@@ -7,7 +7,8 @@ dry (buy on the own outpost card while the team fully controls it and is under
 its 1000-round cap, else collect the supply-zone rations), pick the posture the fight calls for, buy ammo when
 low, revive when it can afford to.
 `guard` defaults to defense posture; `assault` pushes to the enemy central card
-once the team holds the enemy outpost position.
+once the team holds the enemy outpost position; `raid` sits on the enemy base card
+(see `raid_tree`).
 
 These run through the same `Executor` as the policy, so a policy-vs-tree
 comparison measures decisions only — the comparison a team makes on the real
@@ -74,9 +75,46 @@ def sentry_tree(inp: dict, wps: dict, tactic: str = "balanced", last_supply: flo
     return act
 
 
+def raid_tree(inp: dict, wps: dict, last_supply: float = 0.0) -> dict:
+    """Base raid: sit on the far side of the enemy base card.
+
+    Under Arena-1's 2027 rules presence on either card of the enemy base position, with
+    none of theirs on it, takes that position after 5 s, and holding both base positions
+    pays +3 control per second — three times the outpost rate.  The pocket behind the
+    base is screened from the central deck.  The raider stays even when dry (presence is
+    what counts), buys remotely when it can, goes home only when weak.  Whether the real
+    2027 rules let a robot take the enemy base position this way must be checked against
+    the rulebook before a policy is allowed to learn it (docs/sentry27/README.md).
+    """
+    s, t, eco = inp["self"], inp["time"], inp["economy"]
+    act = dict(goal="enemy_base", target="nearest", posture="keep",
+               enhance="on" if s["posture_enhanced"] else "off", supply="none")
+    if not s["alive"]:
+        cost = revive_cost(s.get("level") or 1, t)
+        act.update(goal="hold", target="hold_fire",
+                   supply="revive" if t < 330 and eco["coins"] >= cost + 200 else "none")
+        return act
+    if s["weak"]:
+        act["goal"] = "own_supply"
+    goal = wps[act["goal"]]
+    there = math.hypot(s["x"] - goal[0], s["y"] - goal[1]) < 1.0
+    threatened = t - (s["last_damage_time"] or -99) < 2.5
+    near = [e for e in inp["seen"].values() if math.hypot(e["x"] - s["x"], e["y"] - s["y"]) < 12]
+    if there and act["goal"] == "enemy_base":
+        wanted = "attack" if (near and not threatened and s["hp"] > 0.6 * s["max_hp"]) else "defense"
+    else:
+        wanted = "defense" if (near or threatened) else "move"
+    act["posture"] = "keep" if wanted == s.get("posture") else wanted
+    act["enhance"] = "on" if (wanted == "defense" and s["hp"] < 0.3 * s["max_hp"] and threatened) else "off"
+    if s["ammo"] < 40:
+        act["supply"] = "buy_ammo"
+    return act
+
+
 # name -> tree(inp, wps, last_supply=...) -> head choices.  Register your own team's tree
 # here to evaluate against it (eval_sentry27 --arm bt:<name> --ref bt:<name>).
 TREES = {t: partial(sentry_tree, tactic=t) for t in ("balanced", "guard", "assault")}
+TREES["raid"] = raid_tree
 TACTICS = tuple(TREES)
 
 

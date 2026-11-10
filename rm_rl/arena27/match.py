@@ -5,11 +5,12 @@ over by a *seat*: a decider (policy, tree, random) that chooses a macro action
 every `decision_dt` seconds, executed at 10 Hz by that seat's `Executor`.  Seats
 on both teams make self-play; a seat with `record=True` returns its trajectory.
 
-Reward (per decision, from the team's point of view; `shaping` scales the dense
-terms so they can be annealed toward the sparse result):
+Reward (per decision, from the team's point of view; `shaping` scales the damage,
+own-damage and death terms so they can be annealed toward the result; the control
+term is the first timeout criterion itself and is never annealed):
     control * d(control-degree lead)       the first 2027 timeout criterion
   + damage  * d(team attack-damage lead)   the second
-  + own_damage * d(damage this robot dealt)
+  + own_damage * d(damage this robot dealt)   (0 by default)
   - death   * (this robot died)
   + win     * (+1 win, -1 loss, 0 draw)    at the end
 """
@@ -30,12 +31,12 @@ from .spec import HEADS, MAP_2027, OTHER, waypoints
 
 @dataclass
 class RewardConfig27:
-    control: float = 0.02
+    control: float = 0.02          # never annealed: the control lead decides 2027 timeouts
     damage: float = 1 / 2000
-    own_damage: float = 1 / 1000
+    own_damage: float = 0.0        # v1 used 1/1000: it paid ~+2 a match for shooting, not winning
     death: float = 0.5
     win: float = 10.0
-    shaping: float = 1.0
+    shaping: float = 1.0           # scales the damage / own-damage / death terms only
 
 
 @dataclass
@@ -43,6 +44,8 @@ class Seat:
     decider: object
     record: bool = False
     label: str = ""
+    goal_dt: float = 1.0      # goal commitment (obs.ObsBuilder); trees run free at 1 s
+    forbid: tuple = ()        # goals masked out for this seat
 
 
 @dataclass
@@ -84,11 +87,10 @@ class _Tracker:
         if self.prev is None:
             self.prev = cur
             return 0.0
-        c = self.cfg
-        dense = (c.control * (cur[0] - self.prev[0]) + c.damage * (cur[1] - self.prev[1])
-                 + c.own_damage * (cur[2] - self.prev[2]) - c.death * cur[3])
+        c, prev = self.cfg, self.prev
         self.prev = cur
-        return c.shaping * dense
+        shaped = c.damage * (cur[1] - prev[1]) + c.own_damage * (cur[2] - prev[2]) - c.death * cur[3]
+        return c.control * (cur[0] - prev[0]) + c.shaping * shaped
 
     def terminal(self, winner) -> float:
         return self.cfg.win * (1.0 if winner == self.team else -1.0 if winner == self.enemy else 0.0)
@@ -103,8 +105,9 @@ def run_match(arena, cfg: MatchConfig, seats: dict) -> dict:
     m = ArenaMatch(arena, sides["red"], sides["blue"], seed=cfg.seed, duration=cfg.duration,
                    map_name=cfg.map_name, lineup_overrides=over or None)
     wps = {t: waypoints(m.frame["arena"], t) for t in ("red", "blue")}
-    builders = {k: ObsBuilder(k[0], k[1], wps[k[0]]) for k in seats}
-    full = {k: ObsBuilder(k[0], k[1], wps[k[0]]) for k, s in seats.items() if s.record and cfg.global_state}
+    builders = {k: ObsBuilder(k[0], k[1], wps[k[0]], s.goal_dt, s.forbid) for k, s in seats.items()}
+    full = {k: ObsBuilder(k[0], k[1], wps[k[0]], s.goal_dt, s.forbid) for k, s in seats.items()
+            if s.record and cfg.global_state}
     execs = {k: Executor(arena.sdk, k[0], k[1], wps[k[0]]) for k in seats}
     trackers = {k: _Tracker(k[0], k[1], cfg.reward) for k in seats}
     steps = {k: [] for k, s in seats.items() if s.record}
@@ -141,13 +144,18 @@ def run_match(arena, cfg: MatchConfig, seats: dict) -> dict:
                     st["decisions"] += 1
                     st["alive"] += s["alive"]
                     st["no_ammo"] += s["alive"] and s["ammo"] <= 0
-                    st["own_central"] += s["alive"] and team_obs[team]["zones"].get(f"{team}_central", {}) \
-                        .get("occupants", []).count(f"{team}-{slot}") > 0
+                    zones = team_obs[team]["zones"]
+                    me = f"{team}-{slot}"
+                    st["own_central"] += s["alive"] and me in zones.get(f"{team}_central", {}).get("occupants", [])
+                    st["enemy_base"] += s["alive"] and me in zones.get(f"{OTHER[team]}_base", {}).get("occupants", [])
                 for keys in groups.values():
                     batch = [reqs[k] for k in keys]
                     for req, (idx, extra) in zip(batch, seats[keys[0]].decider(batch)):
                         k = req["key"]
                         names = {h: choices[int(i)] for (h, choices), i in zip(HEADS, idx)}
+                        builders[k].commit(idx[0], m.time)
+                        if k in full:
+                            full[k].commit(idx[0], m.time)
                         execs[k].latch(names, req["inp"], builders[k].last_seen)
                         stats[k]["choice_" + names["goal"]] += 1
                         if k in steps:
@@ -188,6 +196,7 @@ def run_match(arena, cfg: MatchConfig, seats: dict) -> dict:
             label=s.label, ret=round(returns[k], 4), deaths=trackers[k].deaths, damage=me.get("damage", 0.0),
             alive=round(st["alive"] / n, 4), no_ammo=round(st["no_ammo"] / max(st["alive"], 1), 4),
             own_central=round(st["own_central"] / max(st["alive"], 1), 4),
+            enemy_base=round(st["enemy_base"] / max(st["alive"], 1), 4),
             goals={g[7:]: int(v) for g, v in st.items() if g.startswith("choice_")})
     result = dict(
         red=cfg.red, blue=cfg.blue, seed=cfg.seed, winner=winner, reason=frame.get("reason"),
@@ -199,14 +208,14 @@ def run_match(arena, cfg: MatchConfig, seats: dict) -> dict:
     return dict(result=result, trajs=trajs)
 
 
-def probe_spec(arena, map_name=MAP_2027, team_script="claude_opus55_xhigh_2027_team"):
+def probe_spec(arena, map_name=MAP_2027, team_script="claude_opus55_xhigh_2027_team", goal_dt=1.0):
     """Observation / critic-state sizes and feature names, from the first frame of a match."""
     side = lambda t: ScriptedSide(arena, script_path(team_script), t)
     m = ArenaMatch(arena, side("red"), side("blue"), seed=0, duration=5.0, map_name=map_name)
     try:
         obs = m.decide()
         wps = waypoints(m.frame["arena"], "red")
-        ob, fb = ObsBuilder("red", 7, wps), ObsBuilder("red", 7, wps)
+        ob, fb = ObsBuilder("red", 7, wps, goal_dt), ObsBuilder("red", 7, wps, goal_dt)
         o = ob(snapshot_from_arena(obs["red"], 7, "own"))
         g = np.concatenate([fb(snapshot_from_arena(obs["red"], 7, "full", frame=m.frame)),
                             global_extras(m.frame, "red")])
